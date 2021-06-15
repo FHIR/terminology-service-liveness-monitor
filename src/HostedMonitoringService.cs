@@ -23,7 +23,7 @@ namespace terminology_service_liveness_monitor
         private int _serviceStopDelayMs;
 
         /// <summary>
-        /// Initializes a new instance of the QuickServiceMonitor.HostedMonitoringService class.
+        /// Initializes a new instance of the terminiology-service-liveness-monitor.HostedMonitoringService class.
         /// </summary>
         public HostedMonitoringService()
         {
