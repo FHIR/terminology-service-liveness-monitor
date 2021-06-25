@@ -11,16 +11,32 @@ using System.Threading.Tasks;
 
 namespace terminology_service_liveness_monitor
 {
-    class HostedMonitoringService : IHostedService, IDisposable
+    /// <summary>A .Net service for monitoring Windows services.</summary>
+    public class HostedMonitoringService : IHostedService, IDisposable
     {
         /// <summary>The callback timer.</summary>
         private Timer _timer;
+
+        /// <summary>Dispose state tracking (IDisposable).</summary>
         private bool _disposedValue;
 
+        /// <summary>Name of the service we are monitoring.</summary>
         private string _serviceName;
+
+        /// <summary>Name of the process we are monitoring.</summary>
         private string _processName;
+
+        /// <summary>URL of the service we are monitoring.</summary>
         private string _serviceUrl;
+
+        /// <summary>The amount of time to wait after stopping a service.</summary>
         private int _serviceStopDelayMs;
+
+        /// <summary>True to kill a process if the service takes too long to stop.</summary>
+        private bool _killProcess;
+
+        /// <summary>True if monitoring is active.</summary>
+        private bool _monitoringIsActive;
 
         /// <summary>
         /// Initializes a new instance of the terminiology-service-liveness-monitor.HostedMonitoringService class.
@@ -28,11 +44,86 @@ namespace terminology_service_liveness_monitor
         public HostedMonitoringService()
         {
             _disposedValue = false;
+            _monitoringIsActive = false;
         }
 
-        /// <summary>Check service and restart if needed.</summary>
-        /// <param name="state">The state.</param>
-        private async void CheckServiceAndRestartIfNeeded(object state)
+        /// <summary>Occurs when Stopping Monitored Service.</summary>
+        public event EventHandler StoppingMonitoredService;
+
+        /// <summary>Occurs when Stopped Monitored Service.</summary>
+        public event EventHandler StoppedMonitoredService;
+
+        /// <summary>Occurs when Starting Monitored Service.</summary>
+        public event EventHandler StartingMonitoredService;
+
+        /// <summary>Occurs when Started Monitored Service.</summary>
+        public event EventHandler StartedMonitoredService;
+
+        /// <summary>Occurs when Service Test Failed.</summary>
+        public event EventHandler ServiceTestFailed;
+
+        /// <summary>Occurs when Service Test Passed.</summary>
+        public event EventHandler ServiceTestPassed;
+
+        /// <summary>Occurs when Service Test is waiting for the service to become active.</summary>
+        public event EventHandler ServiceTestWaitingStart;
+
+        /// <summary>Raises the stopping monitored service event.</summary>
+        /// <param name="e">Event information to send to registered event handlers.</param>
+        protected virtual void OnStoppingMonitoredService(EventArgs e = null)
+        {
+            Console.WriteLine($"Stopping service {_serviceName}...");
+            StoppingMonitoredService?.Invoke(this, e);
+        }
+
+        /// <summary>Raises the stopped monitored service event.</summary>
+        /// <param name="e">Event information to send to registered event handlers.</param>
+        protected virtual void OnStoppedMonitoredService(EventArgs e = null)
+        {
+            StoppedMonitoredService?.Invoke(this, e);
+        }
+
+        /// <summary>Raises the starting monitored service event.</summary>
+        /// <param name="e">Event information to send to registered event handlers.</param>
+        protected virtual void OnStartingMonitoredService(EventArgs e = null)
+        {
+            Console.WriteLine($"Starting service {_serviceName}...");
+            StartingMonitoredService?.Invoke(this, e);
+        }
+
+        /// <summary>Raises the started monitored service event.</summary>
+        /// <param name="e">Event information to send to registered event handlers.</param>
+        protected virtual void OnStartedMonitoredService(EventArgs e = null)
+        {
+            StartedMonitoredService?.Invoke(this, e);
+        }
+
+        /// <summary>Raises the service test failed event.</summary>
+        /// <param name="e">Event information to send to registered event handlers.</param>
+        protected virtual void OnServiceTestFailed(EventArgs e = null)
+        {
+            ServiceTestFailed?.Invoke(this, e);
+        }
+
+        /// <summary>Raises the service test waiting event.</summary>
+        /// <param name="e">Event information to send to registered event handlers.</param>
+        protected virtual void OnServiceTestWaitingStart(EventArgs e = null)
+        {
+            Console.WriteLine($"Waiting for initial success to begin monitoring, service: {_serviceName}, url: {_serviceUrl}");
+            ServiceTestWaitingStart?.Invoke(this, e);
+        }
+
+        /// <summary>Raises the service test passed event.</summary>
+        /// <param name="e">Event information to send to registered event handlers.</param>
+        protected virtual void OnServiceTestPassed(EventArgs e = null)
+        {
+            Console.WriteLine($"Service test passed: {DateTime.Now}");
+            ServiceTestPassed?.Invoke(this, e);
+        }
+
+        /// <summary>Tests service.</summary>
+        /// <returns>True if the test passes, false if the test fails.</returns>
+        private async Task<bool> TestService()
         {
             HttpClient client = new HttpClient();
 
@@ -45,8 +136,7 @@ namespace terminology_service_liveness_monitor
 
                 if (response.IsSuccessStatusCode)
                 {
-                    Console.WriteLine($"Successful response: {DateTime.Now}");
-                    return;
+                    return true;
                 }
 
                 Console.WriteLine($"Request to {_serviceUrl} failed: {response.StatusCode}!");
@@ -56,13 +146,45 @@ namespace terminology_service_liveness_monitor
                 Console.WriteLine($"Request to {_serviceUrl} failed: {ex.Message}");
             }
 
+            return false;
+        }
+
+        /// <summary>Check service and restart if needed.</summary>
+        /// <param name="state">The state.</param>
+        private async void CheckServiceAndRestartIfNeeded(object state)
+        {
+            if (TestService().Result == true)
+            {
+                if (!_monitoringIsActive)
+                {
+                    Console.WriteLine($"Monitoring is now active for service {_serviceName}");
+                    _monitoringIsActive = true;
+                }
+
+                OnServiceTestPassed();
+                return;
+            }
+
+            if (!_monitoringIsActive)
+            {
+                // raise a waiting on active event
+                OnServiceTestWaitingStart();
+                return;
+            }
+
+            // raise a test failed event
+            OnServiceTestFailed();
+
+            bool serviceIsStopped = false;
+
             ServiceController sc = new ServiceController(_serviceName);
 
             switch (sc.Status)
             {
                 case ServiceControllerStatus.Running:
-                    Console.WriteLine($"Stopping service {_serviceName} after failed request");
-                    
+                    // raise the stopping service event
+                    OnStoppingMonitoredService();
+
                     try
                     {
                         sc.Stop();
@@ -88,31 +210,56 @@ namespace terminology_service_liveness_monitor
                     return;
 
                 case ServiceControllerStatus.Stopped:
+                    serviceIsStopped = true;
+                    break;
+
                 case ServiceControllerStatus.StopPending:
                 default:
                     break;
             }
 
-            if (!string.IsNullOrEmpty(_processName))
+            if (_killProcess && (!serviceIsStopped))
             {
                 Process[] processes = Process.GetProcesses();
                 foreach (Process proc in processes)
                 {
                     if (proc.ProcessName == _processName)
                     {
-                        Console.WriteLine($"Still found process: {_processName}, killing...");
-                        proc.Kill();
+                        try
+                        {
+                            Console.WriteLine($"Found process ({_processName}) after STOP, killing...");
+                            proc.Kill();
+                            serviceIsStopped = true;
+                        }
+                        catch (Exception killEx)
+                        {
+                            Console.WriteLine($"Failed to kill process: {_processName} ({killEx.Message}), will try next loop...");
+                            return;
+                        }
+
                         break;
                     }
                 }
             }
 
-            Console.WriteLine($"Starting service {_serviceName}...");
+            if (!serviceIsStopped)
+            {
+                Console.WriteLine($"Cannot start {_serviceName} while old process is alive! will check next loop...");
+                return;
+            }
 
+            // raise the stopped service event
+            OnStoppedMonitoredService();
+
+            // refresh our service controller to ensure we can actually start the service
             sc.Refresh();
 
             try
             {
+                // raise the starting service event
+                OnStartingMonitoredService();
+
+                // ask the service controller to start the service
                 sc.Start();
             }
             catch (Exception ex)
@@ -132,11 +279,15 @@ namespace terminology_service_liveness_monitor
             _processName = Program.Configuration["ProcessName"];
             _serviceUrl = Program.Configuration["ServiceTestUrl"];
 
-            if ((!string.IsNullOrEmpty(Program.Configuration["Email:SMTP_Server"])) &&
-                (!string.IsNullOrEmpty(Program.Configuration["Email:From"])) &&
-                (!string.IsNullOrEmpty(Program.Configuration["Email:To"])) &&
-                (!string.IsNullOrEmpty(Program.Configuration["Email:SMTP_User"])) &&
-                (!string.IsNullOrEmpty(Program.Configuration["Email:SMTP_Password"])))
+            // TODO(ginoc): Add email notifier
+            //if ((!string.IsNullOrEmpty(Program.Configuration["Email:SMTP_Server"])) &&
+            //    (!string.IsNullOrEmpty(Program.Configuration["Email:From"])) &&
+            //    (!string.IsNullOrEmpty(Program.Configuration["Email:To"])) &&
+            //    (!string.IsNullOrEmpty(Program.Configuration["Email:SMTP_User"])) &&
+            //    (!string.IsNullOrEmpty(Program.Configuration["Email:SMTP_Password"])))
+            //{
+
+            //}
 
             if (int.TryParse(Program.Configuration["ServiceStopDelaySeconds"], out int delaySeconds))
             {
@@ -145,6 +296,16 @@ namespace terminology_service_liveness_monitor
             else
             {
                 _serviceStopDelayMs = 10 * 1000;
+            }
+
+            if ((!string.IsNullOrEmpty(_processName)) &&
+                bool.TryParse(Program.Configuration["KillProcess"], out bool killProcess))
+            {
+                _killProcess = killProcess;
+            }
+            else
+            {
+                _killProcess = false;
             }
 
             string intervalSecondString = Program.Configuration["PollIntervalSeconds"];
