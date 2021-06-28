@@ -8,6 +8,7 @@ using System.ServiceProcess;
 using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
+using terminology_service_liveness_monitor.Notification;
 
 namespace terminology_service_liveness_monitor
 {
@@ -45,80 +46,6 @@ namespace terminology_service_liveness_monitor
         {
             _disposedValue = false;
             _monitoringIsActive = false;
-        }
-
-        /// <summary>Occurs when Stopping Monitored Service.</summary>
-        public event EventHandler StoppingMonitoredService;
-
-        /// <summary>Occurs when Stopped Monitored Service.</summary>
-        public event EventHandler StoppedMonitoredService;
-
-        /// <summary>Occurs when Starting Monitored Service.</summary>
-        public event EventHandler StartingMonitoredService;
-
-        /// <summary>Occurs when Started Monitored Service.</summary>
-        public event EventHandler StartedMonitoredService;
-
-        /// <summary>Occurs when Service Test Failed.</summary>
-        public event EventHandler ServiceTestFailed;
-
-        /// <summary>Occurs when Service Test Passed.</summary>
-        public event EventHandler ServiceTestPassed;
-
-        /// <summary>Occurs when Service Test is waiting for the service to become active.</summary>
-        public event EventHandler ServiceTestWaitingStart;
-
-        /// <summary>Raises the stopping monitored service event.</summary>
-        /// <param name="e">Event information to send to registered event handlers.</param>
-        protected virtual void OnStoppingMonitoredService(EventArgs e = null)
-        {
-            Console.WriteLine($"Stopping service {_serviceName}...");
-            StoppingMonitoredService?.Invoke(this, e);
-        }
-
-        /// <summary>Raises the stopped monitored service event.</summary>
-        /// <param name="e">Event information to send to registered event handlers.</param>
-        protected virtual void OnStoppedMonitoredService(EventArgs e = null)
-        {
-            StoppedMonitoredService?.Invoke(this, e);
-        }
-
-        /// <summary>Raises the starting monitored service event.</summary>
-        /// <param name="e">Event information to send to registered event handlers.</param>
-        protected virtual void OnStartingMonitoredService(EventArgs e = null)
-        {
-            Console.WriteLine($"Starting service {_serviceName}...");
-            StartingMonitoredService?.Invoke(this, e);
-        }
-
-        /// <summary>Raises the started monitored service event.</summary>
-        /// <param name="e">Event information to send to registered event handlers.</param>
-        protected virtual void OnStartedMonitoredService(EventArgs e = null)
-        {
-            StartedMonitoredService?.Invoke(this, e);
-        }
-
-        /// <summary>Raises the service test failed event.</summary>
-        /// <param name="e">Event information to send to registered event handlers.</param>
-        protected virtual void OnServiceTestFailed(EventArgs e = null)
-        {
-            ServiceTestFailed?.Invoke(this, e);
-        }
-
-        /// <summary>Raises the service test waiting event.</summary>
-        /// <param name="e">Event information to send to registered event handlers.</param>
-        protected virtual void OnServiceTestWaitingStart(EventArgs e = null)
-        {
-            Console.WriteLine($"Waiting for initial success to begin monitoring, service: {_serviceName}, url: {_serviceUrl}");
-            ServiceTestWaitingStart?.Invoke(this, e);
-        }
-
-        /// <summary>Raises the service test passed event.</summary>
-        /// <param name="e">Event information to send to registered event handlers.</param>
-        protected virtual void OnServiceTestPassed(EventArgs e = null)
-        {
-            Console.WriteLine($"Service test passed: {DateTime.Now}");
-            ServiceTestPassed?.Invoke(this, e);
         }
 
         /// <summary>Tests service.</summary>
@@ -161,19 +88,19 @@ namespace terminology_service_liveness_monitor
                     _monitoringIsActive = true;
                 }
 
-                OnServiceTestPassed();
+                NotificationHub.OnServiceTestPassed(_serviceName, _serviceUrl);
                 return;
             }
 
             if (!_monitoringIsActive)
             {
                 // raise a waiting on active event
-                OnServiceTestWaitingStart();
+                NotificationHub.OnServiceTestWaitingStart(_serviceName, _serviceUrl);
                 return;
             }
 
             // raise a test failed event
-            OnServiceTestFailed();
+            NotificationHub.OnServiceTestFailed(_serviceName, _serviceUrl);
 
             bool serviceIsStopped = false;
 
@@ -183,7 +110,7 @@ namespace terminology_service_liveness_monitor
             {
                 case ServiceControllerStatus.Running:
                     // raise the stopping service event
-                    OnStoppingMonitoredService();
+                    NotificationHub.OnStoppingMonitoredService(_serviceName);
 
                     try
                     {
@@ -249,7 +176,7 @@ namespace terminology_service_liveness_monitor
             }
 
             // raise the stopped service event
-            OnStoppedMonitoredService();
+            NotificationHub.OnStoppedMonitoredService(_serviceName);
 
             // refresh our service controller to ensure we can actually start the service
             sc.Refresh();
@@ -257,7 +184,7 @@ namespace terminology_service_liveness_monitor
             try
             {
                 // raise the starting service event
-                OnStartingMonitoredService();
+                NotificationHub.OnStartingMonitoredService(_serviceName);
 
                 // ask the service controller to start the service
                 sc.Start();

@@ -6,6 +6,7 @@ using System.Collections.Generic;
 using System.Linq;
 using System.ServiceProcess;
 using System.Threading;
+using terminology_service_liveness_monitor.Notification;
 
 namespace terminology_service_liveness_monitor
 {
@@ -17,7 +18,6 @@ namespace terminology_service_liveness_monitor
 
         private static CancellationTokenSource _cancellationTokenSource;
         private static CancellationToken _cancellationToken;
-
 
         /// <summary>A service for accessing windows information.</summary>
         private class WindowsService : ServiceBase
@@ -99,7 +99,8 @@ namespace terminology_service_liveness_monitor
         internal static void Start()
         {
             // create our service host
-            CreateHostBuilder().Build().RunAsync(_cancellationToken);
+            IHost host = CreateHostBuilder().Build();
+            host.RunAsync(_cancellationToken);
         }
 
         internal static void Stop()
@@ -115,6 +116,7 @@ namespace terminology_service_liveness_monitor
                 .ConfigureServices((hostContext, services) =>
                 {
                     services.AddHostedService<HostedMonitoringService>();
+                    services.AddHostedService<ZulipNotifier>();
                 });
     }
 }
