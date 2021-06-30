@@ -80,6 +80,7 @@ namespace terminology_service_liveness_monitor.Notification
         /// <param name="serviceName">Name of the service.</param>
         public static void OnStartedMonitoredService(string serviceName)
         {
+            Console.WriteLine($"Monitoring is now active for service {serviceName}");
             _current.StartedMonitoredService?.Invoke(_current, null);
         }
 

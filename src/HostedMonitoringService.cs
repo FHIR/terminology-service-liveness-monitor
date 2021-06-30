@@ -84,11 +84,14 @@ namespace terminology_service_liveness_monitor
             {
                 if (!_monitoringIsActive)
                 {
-                    Console.WriteLine($"Monitoring is now active for service {_serviceName}");
                     _monitoringIsActive = true;
+                    NotificationHub.OnStartedMonitoredService(_serviceName);
+                }
+                else
+                {
+                    NotificationHub.OnServiceTestPassed(_serviceName, _serviceUrl);
                 }
 
-                NotificationHub.OnServiceTestPassed(_serviceName, _serviceUrl);
                 return;
             }
 
@@ -99,8 +102,8 @@ namespace terminology_service_liveness_monitor
                 return;
             }
 
-            // raise a test failed event
-            NotificationHub.OnServiceTestFailed(_serviceName, _serviceUrl);
+            // whatever happens, cannot check again until our monitoring restarts
+            _monitoringIsActive = false;
 
             bool serviceIsStopped = false;
 
@@ -109,6 +112,9 @@ namespace terminology_service_liveness_monitor
             switch (sc.Status)
             {
                 case ServiceControllerStatus.Running:
+                    // raise a test failed event
+                    NotificationHub.OnServiceTestFailed(_serviceName, _serviceUrl);
+
                     // raise the stopping service event
                     NotificationHub.OnStoppingMonitoredService(_serviceName);
 
@@ -129,6 +135,14 @@ namespace terminology_service_liveness_monitor
                     Console.WriteLine($"Service {_serviceName} is starting up, will check next loop...");
                     return;
 
+                // shutting down, figure out next loop
+                case ServiceControllerStatus.StopPending:
+                    if (!_killProcess)
+                    {
+                        return;
+                    }
+                    break;
+
                 // states should only be possible manually, don't mess with the user
                 case ServiceControllerStatus.ContinuePending:
                 case ServiceControllerStatus.PausePending:
@@ -140,7 +154,6 @@ namespace terminology_service_liveness_monitor
                     serviceIsStopped = true;
                     break;
 
-                case ServiceControllerStatus.StopPending:
                 default:
                     break;
             }
