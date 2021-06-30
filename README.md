@@ -14,5 +14,14 @@ The application can be run manually or installed as a service.
 
 ## More Information
 
+### Requirements
+
+- .Net 5.0 or later ([dotnet.microsoft.com](https://dotnet.microsoft.com/download))
+
+### Building
+
+Releases are made available periodically.  If you want to build from source, simply clone the repository and run:
+- `dotnet build .\src\terminology-service-liveness-monitor.csproj -c Release`
+
 
 FHIR&reg; is the registered trademark of HL7 and is used with the permission of HL7. 
