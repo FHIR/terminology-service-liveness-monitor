@@ -39,6 +39,9 @@ namespace terminology_service_liveness_monitor
         /// <summary>True if monitoring is active.</summary>
         private bool _monitoringIsActive;
 
+        /// <summary>The accept header.</summary>
+        private static string _acceptHeader;
+
         /// <summary>
         /// Initializes a new instance of the terminiology-service-liveness-monitor.HostedMonitoringService class.
         /// </summary>
@@ -56,10 +59,13 @@ namespace terminology_service_liveness_monitor
 
             try
             {
-                HttpResponseMessage response = await client.SendAsync(
-                    new HttpRequestMessage(
+                HttpRequestMessage httpRequest = new HttpRequestMessage(
                         HttpMethod.Get,
-                        _serviceUrl));
+                        _serviceUrl);
+
+                httpRequest.Headers.Add("Accept", "application/fhir+json");
+
+                HttpResponseMessage response = await client.SendAsync(httpRequest);
 
                 if (response.IsSuccessStatusCode)
                 {
@@ -218,6 +224,13 @@ namespace terminology_service_liveness_monitor
             _serviceName = Program.Configuration["WindowsServiceName"];
             _processName = Program.Configuration["ProcessName"];
             _serviceUrl = Program.Configuration["ServiceTestUrl"];
+
+            _acceptHeader = Program.Configuration["ServiceAcceptHeader"];
+
+            if (string.IsNullOrEmpty(_acceptHeader))
+            {
+                _acceptHeader = "application/fhir+json";
+            }
 
             // TODO(ginoc): Add email notifier
             //if ((!string.IsNullOrEmpty(Program.Configuration["Email:SMTP_Server"])) &&

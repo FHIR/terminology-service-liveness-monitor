@@ -55,6 +55,7 @@ namespace terminology_service_liveness_monitor.Notification
             TestFail,
             TestSuccess,
             WaitingStart,
+            Initializing,
         }
 
         private NotificationMessageType _lastMessageType;
@@ -125,6 +126,10 @@ namespace terminology_service_liveness_monitor.Notification
 
             Console.WriteLine("Zulip notification service started.");
             _zulipClient = new ZulipClient(zulipRC);
+
+            SendNotification(
+                NotificationMessageType.Initializing, 
+                $"{DateTime.Now}: Initializing the monitor service, service name: {_serviceName}.");
 
             if (!string.IsNullOrEmpty(_streamName))
             {
