@@ -259,6 +259,7 @@ namespace terminology_service_liveness_monitor.Notification
             }
             else
             {
+                Console.WriteLine($"ZulipNotifier <<< TrySendStream failed: {result.details}");
                 _currentMessage = 0;
             }
 

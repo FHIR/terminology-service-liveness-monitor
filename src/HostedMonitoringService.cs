@@ -63,7 +63,7 @@ namespace terminology_service_liveness_monitor
                         HttpMethod.Get,
                         _serviceUrl);
 
-                httpRequest.Headers.Add("Accept", "application/fhir+json");
+                httpRequest.Headers.Add("Accept", _acceptHeader);
 
                 HttpResponseMessage response = await client.SendAsync(httpRequest);
 
