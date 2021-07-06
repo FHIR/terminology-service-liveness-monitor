@@ -229,7 +229,7 @@ namespace terminology_service_liveness_monitor
 
             if (string.IsNullOrEmpty(_acceptHeader))
             {
-                _acceptHeader = "application/fhir+json";
+                _acceptHeader = "text/html";
             }
 
             // TODO(ginoc): Add email notifier
