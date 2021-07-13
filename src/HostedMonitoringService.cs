@@ -82,89 +82,27 @@ namespace terminology_service_liveness_monitor
             return false;
         }
 
-        /// <summary>Check service and restart if needed.</summary>
-        /// <param name="state">The state.</param>
-        private async void CheckServiceAndRestartIfNeeded(object state)
+        /// <summary>Stops monitored service.</summary>
+        /// <param name="sc">The screen.</param>
+        /// <returns>An asynchronous result.</returns>
+        private async Task StopMonitoredService(ServiceController sc)
         {
-            if (TestService().Result == true)
-            {
-                if (!_monitoringIsActive)
-                {
-                    _monitoringIsActive = true;
-                    NotificationHub.OnStartedMonitoredService(_serviceName);
-                }
-                else
-                {
-                    NotificationHub.OnServiceTestPassed(_serviceName, _serviceUrl);
-                }
+            // raise the stopping service event
+            NotificationHub.OnStoppingMonitoredService(_serviceName);
 
-                return;
+            try
+            {
+                sc.Stop();
+                await Task.Delay(_serviceStopDelayMs).ConfigureAwait(false);
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"Failed to STOP service {_serviceName}: {ex.Message}");
             }
 
-            if (!_monitoringIsActive)
-            {
-                // raise a waiting on active event
-                NotificationHub.OnServiceTestWaitingStart(_serviceName, _serviceUrl);
-                return;
-            }
+            sc.Refresh();
 
-            // whatever happens, cannot check again until our monitoring restarts
-            _monitoringIsActive = false;
-
-            bool serviceIsStopped = false;
-
-            ServiceController sc = new ServiceController(_serviceName);
-
-            switch (sc.Status)
-            {
-                case ServiceControllerStatus.Running:
-                    // raise a test failed event
-                    NotificationHub.OnServiceTestFailed(_serviceName, _serviceUrl);
-
-                    // raise the stopping service event
-                    NotificationHub.OnStoppingMonitoredService(_serviceName);
-
-                    try
-                    {
-                        sc.Stop();
-                        await Task.Delay(_serviceStopDelayMs).ConfigureAwait(false);
-                    }
-                    catch (Exception ex)
-                    {
-                        Console.WriteLine($"Failed to STOP service {_serviceName}: {ex.Message}");
-                    }
-
-                    break;
-
-                // starting up, figure out next loop
-                case ServiceControllerStatus.StartPending:
-                    Console.WriteLine($"Service {_serviceName} is starting up, will check next loop...");
-                    return;
-
-                // shutting down, figure out next loop
-                case ServiceControllerStatus.StopPending:
-                    if (!_killProcess)
-                    {
-                        return;
-                    }
-                    break;
-
-                // states should only be possible manually, don't mess with the user
-                case ServiceControllerStatus.ContinuePending:
-                case ServiceControllerStatus.PausePending:
-                case ServiceControllerStatus.Paused:
-                    Console.WriteLine($"Service {_serviceName} in manual state {sc.Status} - ignoring...");
-                    return;
-
-                case ServiceControllerStatus.Stopped:
-                    serviceIsStopped = true;
-                    break;
-
-                default:
-                    break;
-            }
-
-            if (_killProcess && (!serviceIsStopped))
+            if (_killProcess && (sc.Status != ServiceControllerStatus.Stopped))
             {
                 Process[] processes = Process.GetProcesses();
                 foreach (Process proc in processes)
@@ -175,7 +113,6 @@ namespace terminology_service_liveness_monitor
                         {
                             Console.WriteLine($"Found process ({_processName}) after STOP, killing...");
                             proc.Kill();
-                            serviceIsStopped = true;
                         }
                         catch (Exception killEx)
                         {
@@ -187,19 +124,13 @@ namespace terminology_service_liveness_monitor
                     }
                 }
             }
+        }
 
-            if (!serviceIsStopped)
-            {
-                Console.WriteLine($"Cannot start {_serviceName} while old process is alive! will check next loop...");
-                return;
-            }
-
-            // raise the stopped service event
-            NotificationHub.OnStoppedMonitoredService(_serviceName);
-
-            // refresh our service controller to ensure we can actually start the service
-            sc.Refresh();
-
+        /// <summary>Starts monitored service.</summary>
+        /// <param name="sc">The screen.</param>
+        /// <returns>An asynchronous result.</returns>
+        private void StartMonitoredService(ServiceController sc)
+        {
             try
             {
                 // raise the starting service event
@@ -211,6 +142,76 @@ namespace terminology_service_liveness_monitor
             catch (Exception ex)
             {
                 Console.WriteLine($"Failed to START service {_serviceName}: {ex.Message}");
+            }
+        }
+
+        /// <summary>Check service and restart if needed.</summary>
+        /// <param name="state">The state.</param>
+        private async void CheckServiceAndRestartIfNeeded(object state)
+        {
+            ServiceController sc = new ServiceController(_serviceName);
+
+            switch (sc.Status)
+            {
+                case ServiceControllerStatus.Running:
+                    bool testPassed = TestService().Result;
+
+                    if (testPassed)
+                    {
+                        NotificationHub.OnServiceTestPassed(_serviceName, _serviceUrl);
+
+                        if (!_monitoringIsActive)
+                        {
+                            _monitoringIsActive = true;
+                            NotificationHub.OnStartedMonitoredService(_serviceName);
+                        }
+
+                        return;
+                    }
+
+                    // need initial success before reporting a failure
+                    if (!_monitoringIsActive)
+                    {
+                        NotificationHub.OnServiceTestWaitingStart(_serviceName, _serviceUrl);
+                        return;
+                    }
+
+                    NotificationHub.OnServiceTestFailed(_serviceName, _serviceUrl);
+
+                    // flag we are not monitoring
+                    _monitoringIsActive = false;
+
+                    // stop the service
+                    await StopMonitoredService(sc);
+
+                    return;
+
+                case ServiceControllerStatus.Stopped:
+                    StartMonitoredService(sc);
+                    return;
+
+                // starting up, wait for next loop
+                case ServiceControllerStatus.StartPending:
+                    Console.WriteLine($"Service {_serviceName} is starting up, will check next loop...");
+                    NotificationHub.OnStartingMonitoredService(_serviceName);
+                    return;
+
+                // shutting down, figure out next loop
+                case ServiceControllerStatus.StopPending:
+                    Console.WriteLine($"Service {_serviceName} is stopping, will check next loop...");
+                    NotificationHub.OnStoppingMonitoredService(_serviceName);
+                    break;
+
+                // states should only be possible manually, don't mess with the user
+                case ServiceControllerStatus.ContinuePending:
+                case ServiceControllerStatus.PausePending:
+                case ServiceControllerStatus.Paused:
+                    Console.WriteLine($"Service {_serviceName} in manual state {sc.Status} - ignoring...");
+                    NotificationHub.OnManualServiceStateFound(_serviceName, sc.Status.ToString());
+                    return;
+
+                default:
+                    break;
             }
         }
 

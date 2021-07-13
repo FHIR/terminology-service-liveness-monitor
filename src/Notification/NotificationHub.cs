@@ -54,11 +54,14 @@ namespace terminology_service_liveness_monitor.Notification
         /// <summary>Occurs when Service Test is waiting for the service to become active.</summary>
         public event EventHandler ServiceTestWaitingStart;
 
+        /// <summary>Occurs when Service Manual State Found.</summary>
+        public event EventHandler ServiceManualStateFound;
+
         /// <summary>Raises the stopping monitored service event.</summary>
         /// <param name="serviceName">Name of the service.</param>
         public static void OnStoppingMonitoredService(string serviceName)
         {
-            Console.WriteLine($"Stopping service {serviceName}...");
+            Console.WriteLine($"NotificationHub <<< Stopping service {serviceName}...");
             _current.StoppingMonitoredService?.Invoke(_current, null);
         }
 
@@ -66,13 +69,14 @@ namespace terminology_service_liveness_monitor.Notification
         /// <param name="serviceName">Name of the service.</param>
         public static void OnStoppedMonitoredService(string serviceName)
         {
+            Console.WriteLine($"NotificationHub <<< Service {serviceName} is stopped.");
             _current.StoppedMonitoredService?.Invoke(_current, null);
         }
 
         /// <summary>Raises the starting monitored service event.</summary>
         public static void OnStartingMonitoredService(string serviceName)
         {
-            Console.WriteLine($"Starting service {serviceName}...");
+            Console.WriteLine($"NotificationHub <<< Starting service {serviceName}...");
             _current.StartingMonitoredService?.Invoke(_current, null);
         }
 
@@ -80,7 +84,7 @@ namespace terminology_service_liveness_monitor.Notification
         /// <param name="serviceName">Name of the service.</param>
         public static void OnStartedMonitoredService(string serviceName)
         {
-            Console.WriteLine($"Monitoring is now active for service {serviceName}");
+            Console.WriteLine($"NotificationHub <<< Monitoring is now active for service {serviceName}");
             _current.StartedMonitoredService?.Invoke(_current, null);
         }
 
@@ -89,6 +93,7 @@ namespace terminology_service_liveness_monitor.Notification
         /// <param name="serviceUrl"> URL of the service.</param>
         public static void OnServiceTestFailed(string serviceName, string serviceUrl)
         {
+            Console.WriteLine($"NotificationHub << ServiceTestFailed: {DateTime.Now}");
             _current.ServiceTestFailed?.Invoke(_current, null);
         }
 
@@ -97,7 +102,7 @@ namespace terminology_service_liveness_monitor.Notification
         /// <param name="serviceUrl"> URL of the service.</param>
         public static void OnServiceTestWaitingStart(string serviceName, string serviceUrl)
         {
-            Console.WriteLine($"Waiting for initial success to begin monitoring, service: {serviceName}, url: {serviceUrl}");
+            Console.WriteLine($"NotificationHub <<< Waiting for initial success to begin monitoring, service: {serviceName}, url: {serviceUrl}");
             _current.ServiceTestWaitingStart?.Invoke(_current, null);
         }
 
@@ -106,8 +111,17 @@ namespace terminology_service_liveness_monitor.Notification
         /// <param name="serviceUrl"> URL of the service.</param>
         public static void OnServiceTestPassed(string serviceName, string serviceUrl)
         {
-            Console.WriteLine($"Service test passed: {DateTime.Now}");
+            Console.WriteLine($"NotificationHub <<< Service test passed: {DateTime.Now}");
             _current.ServiceTestPassed?.Invoke(_current, null);
+        }
+
+        /// <summary>Executes the manual service state found action.</summary>
+        /// <param name="serviceName"> Name of the service.</param>
+        /// <param name="serviceState">State of the service.</param>
+        public static void OnManualServiceStateFound(string serviceName, string serviceState)
+        {
+            Console.WriteLine($"NotificationHub <<< Service {serviceName} in manual state {serviceState} at {DateTime.Now}...");
+            _current.ServiceManualStateFound?.Invoke(_current, null);
         }
     }
 }

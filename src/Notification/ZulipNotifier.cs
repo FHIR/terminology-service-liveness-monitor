@@ -119,6 +119,12 @@ namespace terminology_service_liveness_monitor.Notification
                 return Task.CompletedTask;
             }
 
+            if (string.IsNullOrEmpty(_streamName))
+            {
+                Console.WriteLine($"Empty Zulip Stream Name - Zulip notifications are disabled!");
+                return Task.CompletedTask;
+            }
+
             _zulipThreadTime = DateTime.Now;
             UpdateTopic();
 

@@ -380,3 +380,4 @@ msbuild.wrn
 /temp
 /secrets
 /local
+/publish
