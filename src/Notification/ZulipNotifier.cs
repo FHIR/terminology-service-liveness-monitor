@@ -35,6 +35,9 @@ namespace terminology_service_liveness_monitor.Notification
         /// <summary>Stream name to post to.</summary>
         private string _streamName;
 
+        /// <summary>The curl command.</summary>
+        private string _curlCommand;
+
         ///// <summary>List of names of the users.</summary>
         //private string[] _userNames;
 
@@ -72,6 +75,8 @@ namespace terminology_service_liveness_monitor.Notification
             _currentMessage = 0;
 
             _streamName = Program.Configuration["Zulip:StreamName"];
+
+            _curlCommand = Program.Configuration["CurlCommand"];
 
             // TODO(ginoc): private messages are currently disabled - KISS
             #if CAKE
@@ -113,15 +118,9 @@ namespace terminology_service_liveness_monitor.Notification
         /// <returns>An asynchronous result.</returns>
         public Task StartAsync(CancellationToken cancellationToken)
         {
-            if (!TryFindZulipRC(Path.GetDirectoryName(Assembly.GetExecutingAssembly().Location), out string zulipRC))
+            if (!TryFindZulipRC(AppContext.BaseDirectory, out string zulipRC))
             {
                 Console.WriteLine($"No ZulipRC file found - Zulip notifications are disabled!");
-                return Task.CompletedTask;
-            }
-
-            if (string.IsNullOrEmpty(_streamName))
-            {
-                Console.WriteLine($"Empty Zulip Stream Name - Zulip notifications are disabled!");
                 return Task.CompletedTask;
             }
 
@@ -131,7 +130,15 @@ namespace terminology_service_liveness_monitor.Notification
             _lastMessageType = NotificationMessageType.None;
 
             Console.WriteLine("Zulip notification service started.");
-            _zulipClient = new ZulipClient(zulipRC);
+
+            if (string.IsNullOrEmpty(_curlCommand))
+            {
+                _zulipClient = new ZulipClient(zulipRC);
+            }
+            else
+            {
+                _zulipClient = new ZulipClient(zulipRC, _curlCommand);
+            }
 
             SendNotification(
                 NotificationMessageType.Initializing, 
@@ -257,19 +264,36 @@ namespace terminology_service_liveness_monitor.Notification
                 return;
             }
 
-            var result = await _zulipClient.Messages.TrySendStream(content, _currentTopic, _streamName);
+            try
+            {
+                ulong messageId = await _zulipClient.Messages.SendStream(content, _currentTopic, _streamName);
 
-            if (result.success == true)
-            {
-                _currentMessage = result.messageId;
+                _currentMessage = messageId;
+                Console.WriteLine($"ZulipNotifier <<< TrySendStream passed! message: {messageId}");
+
+                _lastMessageType = messageType;
             }
-            else
+            catch (Exception ex)
             {
-                Console.WriteLine($"ZulipNotifier <<< TrySendStream failed: {result.details}");
+                Console.WriteLine($"ZulipNotifier <<< TrySendStream failed: {ex.Message}");
+                Console.WriteLine(ex.InnerException);
                 _currentMessage = 0;
             }
 
-            _lastMessageType = messageType;
+            //var result = await _zulipClient.Messages.TrySendStream(content, _currentTopic, _streamName);
+
+            //if (result.success == true)
+            //{
+            //    _currentMessage = result.messageId;
+            //    Console.WriteLine($"ZulipNotifier <<< TrySendStream passed! message: {result.messageId}");
+            //}
+            //else
+            //{
+            //    Console.WriteLine($"ZulipNotifier <<< TrySendStream failed: {result.details}");
+            //    _currentMessage = 0;
+            //}
+
+            //_lastMessageType = messageType;
         }
 
         /// <summary>Updates the message described by content.</summary>

@@ -53,6 +53,12 @@ namespace terminology_service_liveness_monitor
                 return -1;
             }
 
+            // allow known good versions of TLS
+            System.Net.ServicePointManager.SecurityProtocol = 
+                System.Net.SecurityProtocolType.Tls13 | 
+                System.Net.SecurityProtocolType.Tls12 | 
+                System.Net.SecurityProtocolType.Tls11;
+
             // configuration ordering: command line > environment vars > json file 
             Configuration = new ConfigurationBuilder()
                 .AddJsonFile("appsettings.json", optional: true)

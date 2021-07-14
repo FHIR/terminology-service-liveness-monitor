@@ -149,6 +149,8 @@ namespace terminology_service_liveness_monitor
         /// <param name="state">The state.</param>
         private async void CheckServiceAndRestartIfNeeded(object state)
         {
+            Console.WriteLine($"CheckServiceAndRestartIfNeeded <<< testing... {DateTime.Now}");
+
             ServiceController sc = new ServiceController(_serviceName);
 
             switch (sc.Status)
@@ -220,7 +222,7 @@ namespace terminology_service_liveness_monitor
         /// <returns>An asynchronous result.</returns>
         public Task StartAsync(CancellationToken cancellationToken)
         {
-            Console.WriteLine("Hosted Monitoring Service Started.");
+            Console.WriteLine("HostedMonitorService <<< Starting...");
 
             _serviceName = Program.Configuration["WindowsServiceName"];
             _processName = Program.Configuration["ProcessName"];
@@ -232,6 +234,8 @@ namespace terminology_service_liveness_monitor
             {
                 _acceptHeader = "text/html";
             }
+
+            Console.WriteLine($"HostedMonitorService <<< accept header: {_acceptHeader}");
 
             // TODO(ginoc): Add email notifier
             //if ((!string.IsNullOrEmpty(Program.Configuration["Email:SMTP_Server"])) &&
@@ -251,6 +255,8 @@ namespace terminology_service_liveness_monitor
             {
                 _serviceStopDelayMs = 10 * 1000;
             }
+
+            Console.WriteLine($"HostedMonitorService <<< service delay stop MS: {_serviceStopDelayMs}");
 
             if ((!string.IsNullOrEmpty(_processName)) &&
                 bool.TryParse(Program.Configuration["KillProcess"], out bool killProcess))
@@ -274,6 +280,8 @@ namespace terminology_service_liveness_monitor
             {
                 seconds += 5;
             }
+
+            Console.WriteLine($"HostedMonitorService <<< poll interval seconds: {seconds}");
 
             _timer = new Timer(
                 CheckServiceAndRestartIfNeeded,
