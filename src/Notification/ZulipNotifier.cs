@@ -136,6 +136,12 @@ namespace terminology_service_liveness_monitor.Notification
         /// <returns>An asynchronous result.</returns>
         public Task StartAsync(CancellationToken cancellationToken)
         {
+            if (string.IsNullOrEmpty(_streamName))
+            {
+                Console.WriteLine("Zulip notifications are disabled!");
+                return Task.CompletedTask;
+            }
+
             if (!TryFindZulipRC(AppContext.BaseDirectory, out string zulipRC))
             {
                 Console.WriteLine($"No ZulipRC file found - Zulip notifications are disabled!");
@@ -162,16 +168,13 @@ namespace terminology_service_liveness_monitor.Notification
                 NotificationMessageType.Initializing, 
                 $"Zulip notification bot starting up....");
 
-            if (!string.IsNullOrEmpty(_streamName))
-            {
-                NotificationHub.Current.MonitorInitializing += HandleMonitorInitializing;
-                NotificationHub.Current.HttpTestFailed += HandleHttpTestFailed;
-                NotificationHub.Current.HttpTestPassed += HandleHttpTestPassed;
-                NotificationHub.Current.StoppingService += HandleStoppingService;
-                NotificationHub.Current.WaitingForServiceToStop += HandleWaitingForServiceToStop;
-                NotificationHub.Current.StartingService += HandleStartingService;
-                NotificationHub.Current.WaitingForFirstSuccess += HandleWaitingForFirstSuccess;
-            }
+            NotificationHub.Current.MonitorInitializing += HandleMonitorInitializing;
+            NotificationHub.Current.HttpTestFailed += HandleHttpTestFailed;
+            NotificationHub.Current.HttpTestPassed += HandleHttpTestPassed;
+            NotificationHub.Current.StoppingService += HandleStoppingService;
+            NotificationHub.Current.WaitingForServiceToStop += HandleWaitingForServiceToStop;
+            NotificationHub.Current.StartingService += HandleStartingService;
+            NotificationHub.Current.WaitingForFirstSuccess += HandleWaitingForFirstSuccess;
 
             return Task.CompletedTask;
         }
