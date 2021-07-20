@@ -33,95 +33,84 @@ namespace terminology_service_liveness_monitor.Notification
         /// <summary>Gets the current.</summary>
         public static NotificationHub Current => _current;
 
-        /// <summary>Occurs when Stopping Monitored Service.</summary>
-        public event EventHandler StoppingMonitoredService;
-
-        /// <summary>Occurs when Stopped Monitored Service.</summary>
-        public event EventHandler StoppedMonitoredService;
-
-        /// <summary>Occurs when Starting Monitored Service.</summary>
-        public event EventHandler StartingMonitoredService;
-
-        /// <summary>Occurs when Started Monitored Service.</summary>
-        public event EventHandler StartedMonitoredService;
+        /// <summary>Occurs when the Service Monitor is Initializing.</summary>
+        public event EventHandler MonitorInitializing;
 
         /// <summary>Occurs when Service Test Failed.</summary>
-        public event EventHandler ServiceTestFailed;
+        public event EventHandler HttpTestFailed;
 
         /// <summary>Occurs when Service Test Passed.</summary>
-        public event EventHandler ServiceTestPassed;
+        public event EventHandler HttpTestPassed;
 
-        /// <summary>Occurs when Service Test is waiting for the service to become active.</summary>
-        public event EventHandler ServiceTestWaitingStart;
+        /// <summary>Occurs when Stopping Service.</summary>
+        public event EventHandler StoppingService;
 
-        /// <summary>Occurs when Service Manual State Found.</summary>
-        public event EventHandler ServiceManualStateFound;
+        /// <summary>Occurs when Waiting For Service To Stop.</summary>
+        public event EventHandler WaitingForServiceToStop;
 
-        /// <summary>Raises the stopping monitored service event.</summary>
-        /// <param name="serviceName">Name of the service.</param>
-        public static void OnStoppingMonitoredService(string serviceName)
+        /// <summary>Occurs when Starting Service.</summary>
+        public event EventHandler StartingService;
+
+        /// <summary>Occurs when Waiting For the first Success.</summary>
+        public event EventHandler WaitingForFirstSuccess;
+
+        /// <summary>Executes the monitor initializing action.</summary>
+        public static void OnMonitorInitializing()
         {
-            Console.WriteLine($"NotificationHub <<< Stopping service {serviceName}...");
-            _current.StoppingMonitoredService?.Invoke(_current, null);
+            Console.WriteLine($"NotificationHub <<< {DateTime.Now} - Monitoring Service is Initializing...");
+            _current.MonitorInitializing?.Invoke(_current, null);
         }
 
-        /// <summary>Raises the stopped monitored service event.</summary>
-        /// <param name="serviceName">Name of the service.</param>
-        public static void OnStoppedMonitoredService(string serviceName)
-        {
-            Console.WriteLine($"NotificationHub <<< Service {serviceName} is stopped.");
-            _current.StoppedMonitoredService?.Invoke(_current, null);
-        }
-
-        /// <summary>Raises the starting monitored service event.</summary>
-        public static void OnStartingMonitoredService(string serviceName)
-        {
-            Console.WriteLine($"NotificationHub <<< Starting service {serviceName}...");
-            _current.StartingMonitoredService?.Invoke(_current, null);
-        }
-
-        /// <summary>Raises the started monitored service event.</summary>
-        /// <param name="serviceName">Name of the service.</param>
-        public static void OnStartedMonitoredService(string serviceName)
-        {
-            Console.WriteLine($"NotificationHub <<< Monitoring is now active for service {serviceName}");
-            _current.StartedMonitoredService?.Invoke(_current, null);
-        }
-
-        /// <summary>Raises the service test failed event.</summary>
+        /// <summary>Raises the http test failed event.</summary>
         /// <param name="serviceName">Name of the service.</param>
         /// <param name="serviceUrl"> URL of the service.</param>
-        public static void OnServiceTestFailed(string serviceName, string serviceUrl)
+        public static void OnHttpTestFailed(string serviceName, string serviceUrl)
         {
-            Console.WriteLine($"NotificationHub << ServiceTestFailed: {DateTime.Now}");
-            _current.ServiceTestFailed?.Invoke(_current, null);
+            Console.WriteLine($"NotificationHub << {DateTime.Now} - Http test FAILED!");
+            _current.HttpTestFailed?.Invoke(_current, null);
         }
 
-        /// <summary>Raises the service test waiting event.</summary>
+        /// <summary>Raises the http test passed event.</summary>
         /// <param name="serviceName">Name of the service.</param>
         /// <param name="serviceUrl"> URL of the service.</param>
-        public static void OnServiceTestWaitingStart(string serviceName, string serviceUrl)
+        public static void OnHttpTestPassed(string serviceName, string serviceUrl)
         {
-            Console.WriteLine($"NotificationHub <<< Waiting for initial success to begin monitoring, service: {serviceName}, url: {serviceUrl}");
-            _current.ServiceTestWaitingStart?.Invoke(_current, null);
+            Console.WriteLine($"NotificationHub <<< {DateTime.Now} - Http test passed.");
+            _current.HttpTestPassed?.Invoke(_current, null);
         }
 
-        /// <summary>Raises the service test passed event.</summary>
+        /// <summary>Executes the stopping service action.</summary>
         /// <param name="serviceName">Name of the service.</param>
-        /// <param name="serviceUrl"> URL of the service.</param>
-        public static void OnServiceTestPassed(string serviceName, string serviceUrl)
+        public static void OnStoppingService(string serviceName)
         {
-            Console.WriteLine($"NotificationHub <<< Service test passed: {DateTime.Now}");
-            _current.ServiceTestPassed?.Invoke(_current, null);
+            Console.WriteLine($"NotificationHub <<< {DateTime.Now} - Stopping service: {serviceName}");
+            _current.StoppingService?.Invoke(_current, null);
         }
 
-        /// <summary>Executes the manual service state found action.</summary>
-        /// <param name="serviceName"> Name of the service.</param>
-        /// <param name="serviceState">State of the service.</param>
-        public static void OnManualServiceStateFound(string serviceName, string serviceState)
+        /// <summary>Executes the waiting for service to stop action.</summary>
+        /// <param name="serviceName">Name of the service.</param>
+        public static void OnWaitingForServiceToStop(string serviceName)
         {
-            Console.WriteLine($"NotificationHub <<< Service {serviceName} in manual state {serviceState} at {DateTime.Now}...");
-            _current.ServiceManualStateFound?.Invoke(_current, null);
+            Console.WriteLine($"NotificationHub <<< {DateTime.Now} - Waiting for service to stop: {serviceName}");
+            _current.WaitingForServiceToStop?.Invoke(_current, null);
         }
+
+        /// <summary>Executes the starting service action.</summary>
+        /// <param name="serviceName">Name of the service.</param>
+        public static void OnStartingService(string serviceName)
+        {
+            Console.WriteLine($"NotificationHub <<< {DateTime.Now} - Starting service: {serviceName}");
+            _current.StartingService?.Invoke(_current, null);
+        }
+
+        /// <summary>Executes the waiting for service to start action.</summary>
+        /// <param name="serviceName">Name of the service.</param>
+        public static void OnWaitingForFirstSuccess(string serviceName)
+        {
+            Console.WriteLine($"NotificationHub <<< {DateTime.Now} - Waiting for first success: {serviceName}");
+            _current.WaitingForFirstSuccess?.Invoke(_current, null);
+        }
+
+
     }
 }

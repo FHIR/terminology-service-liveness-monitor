@@ -18,6 +18,9 @@ namespace terminology_service_liveness_monitor
         /// <summary>The callback timer.</summary>
         private Timer _timer;
 
+        /// <summary>The polling in seconds.</summary>
+        private int _pollingSeconds;
+
         /// <summary>Dispose state tracking (IDisposable).</summary>
         private bool _disposedValue;
 
@@ -36,11 +39,22 @@ namespace terminology_service_liveness_monitor
         /// <summary>True to kill a process if the service takes too long to stop.</summary>
         private bool _killProcess;
 
-        /// <summary>True if monitoring is active.</summary>
-        private bool _monitoringIsActive;
-
         /// <summary>The accept header.</summary>
         private static string _acceptHeader;
+
+        /// <summary>The state.</summary>
+        private static MonitoringState _state;
+
+        /// <summary>Values that represent monitoring states.</summary>
+        private enum MonitoringState
+        {
+            Initializing,
+            Ok,
+            RequestStop,
+            WaitingForServiceToStop,
+            RequestStart,
+            WaitingForFirstSuccess,
+        };
 
         /// <summary>
         /// Initializes a new instance of the terminiology-service-liveness-monitor.HostedMonitoringService class.
@@ -48,7 +62,7 @@ namespace terminology_service_liveness_monitor
         public HostedMonitoringService()
         {
             _disposedValue = false;
-            _monitoringIsActive = false;
+            _state = MonitoringState.Initializing;
         }
 
         /// <summary>Tests service.</summary>
@@ -82,13 +96,23 @@ namespace terminology_service_liveness_monitor
             return false;
         }
 
-        /// <summary>Stops monitored service.</summary>
-        /// <param name="sc">The screen.</param>
-        /// <returns>An asynchronous result.</returns>
-        private async Task StopMonitoredService(ServiceController sc)
+        /// <summary>Query if this object is service stopped.</summary>
+        /// <returns>True if service stopped, false if not.</returns>
+        private bool IsServiceStopped()
         {
+            ServiceController sc = new ServiceController(_serviceName);
+
+            return sc.Status == ServiceControllerStatus.Stopped;
+        }
+
+        /// <summary>Stops monitored service.</summary>
+        /// <returns>An asynchronous result.</returns>
+        private async Task StopMonitoredService()
+        {
+            ServiceController sc = new ServiceController(_serviceName);
+
             // raise the stopping service event
-            NotificationHub.OnStoppingMonitoredService(_serviceName);
+            NotificationHub.OnStoppingService(_serviceName);
 
             try
             {
@@ -127,14 +151,15 @@ namespace terminology_service_liveness_monitor
         }
 
         /// <summary>Starts monitored service.</summary>
-        /// <param name="sc">The screen.</param>
         /// <returns>An asynchronous result.</returns>
-        private void StartMonitoredService(ServiceController sc)
+        private void StartMonitoredService()
         {
             try
             {
                 // raise the starting service event
-                NotificationHub.OnStartingMonitoredService(_serviceName);
+                NotificationHub.OnStartingService(_serviceName);
+
+                ServiceController sc = new ServiceController(_serviceName);
 
                 // ask the service controller to start the service
                 sc.Start();
@@ -145,75 +170,140 @@ namespace terminology_service_liveness_monitor
             }
         }
 
-        /// <summary>Check service and restart if needed.</summary>
-        /// <param name="state">The state.</param>
-        private async void CheckServiceAndRestartIfNeeded(object state)
+        /// <summary>Process the initializing state. Moves to WaitingForFirstSuccess.</summary>
+        /// <returns>The next MonitoringState.</returns>
+        private MonitoringState ProcessStateInitializing()
         {
-            Console.WriteLine($"CheckServiceAndRestartIfNeeded <<< testing... {DateTime.Now}");
+            NotificationHub.OnMonitorInitializing();
 
-            ServiceController sc = new ServiceController(_serviceName);
+            // during startup, assume we are waiting on the monitored service
+            return MonitoringState.WaitingForFirstSuccess;
+        }
 
-            switch (sc.Status)
+        /// <summary>Process the ok state. Moves to Ok or RequestStop.</summary>
+        /// <returns>An asynchronous result that yields a MonitoringState.</returns>
+        private async Task<MonitoringState> ProcessStateOk()
+        {
+            bool testPassed = await TestService();
+
+            if (testPassed)
             {
-                case ServiceControllerStatus.Running:
-                    bool testPassed = TestService().Result;
+                NotificationHub.OnHttpTestPassed(_serviceName, _serviceUrl);
 
-                    if (testPassed)
-                    {
-                        NotificationHub.OnServiceTestPassed(_serviceName, _serviceUrl);
+                // continue monitoring
+                return MonitoringState.Ok;
+            }
 
-                        if (!_monitoringIsActive)
-                        {
-                            _monitoringIsActive = true;
-                            NotificationHub.OnStartedMonitoredService(_serviceName);
-                        }
+            NotificationHub.OnHttpTestFailed(_serviceName, _serviceUrl);
 
-                        return;
-                    }
+            // restart the service
+            return MonitoringState.RequestStop;
+        }
 
-                    // need initial success before reporting a failure
-                    if (!_monitoringIsActive)
-                    {
-                        NotificationHub.OnServiceTestWaitingStart(_serviceName, _serviceUrl);
-                        return;
-                    }
+        /// <summary>Process the waiting for first success sate. Moves to WaitingForFirstSuccess or Ok.</summary>
+        /// <returns>An asynchronous result that yields a MonitoringState.</returns>
+        private async Task<MonitoringState> ProcessStateWaitingForFirstSuccess()
+        {
+            bool testPassed = await TestService();
 
-                    NotificationHub.OnServiceTestFailed(_serviceName, _serviceUrl);
+            if (testPassed)
+            {
+                NotificationHub.OnHttpTestPassed(_serviceName, _serviceUrl);
 
-                    // flag we are not monitoring
-                    _monitoringIsActive = false;
+                // move to standard monitoring
+                return MonitoringState.Ok;
+            }
 
-                    // stop the service
-                    await StopMonitoredService(sc);
+            // need initial success before reporting a failure
+            NotificationHub.OnWaitingForFirstSuccess(_serviceName);
+            return MonitoringState.WaitingForFirstSuccess;
+        }
 
-                    return;
+        /// <summary>Process the request stop state. Moves to WaitingForServiceToStop.</summary>
+        /// <returns>An asynchronous result that yields a MonitoringState.</returns>
+        private async Task<MonitoringState> ProcessStateRequestStop()
+        {
+            // stop the service
+            await StopMonitoredService();
+            return MonitoringState.WaitingForServiceToStop;
+        }
 
-                case ServiceControllerStatus.Stopped:
-                    StartMonitoredService(sc);
-                    return;
+        /// <summary>Process the waiting for service to stop state. Moves to WaitingForServiceToStop or RequestStart.</summary>
+        /// <returns>A MonitoringState.</returns>
+        private MonitoringState ProcessStateWaitingForServiceToStop()
+        {
+            if (IsServiceStopped())
+            {
+                return MonitoringState.RequestStart;
+            }
 
-                // starting up, wait for next loop
-                case ServiceControllerStatus.StartPending:
-                    Console.WriteLine($"Service {_serviceName} is starting up, will check next loop...");
-                    NotificationHub.OnStartingMonitoredService(_serviceName);
-                    return;
+            return MonitoringState.WaitingForServiceToStop;
+        }
 
-                // shutting down, figure out next loop
-                case ServiceControllerStatus.StopPending:
-                    Console.WriteLine($"Service {_serviceName} is stopping, will check next loop...");
-                    NotificationHub.OnStoppingMonitoredService(_serviceName);
-                    break;
+        /// <summary>Process the request start state. Moves to WaitingForFirstSuccess.</summary>
+        /// <returns>A MonitoringState.</returns>
+        private MonitoringState ProcessStateRequestStart()
+        {
+            // start the service
+            StartMonitoredService();
+            return MonitoringState.WaitingForFirstSuccess;
+        }
 
-                // states should only be possible manually, don't mess with the user
-                case ServiceControllerStatus.ContinuePending:
-                case ServiceControllerStatus.PausePending:
-                case ServiceControllerStatus.Paused:
-                    Console.WriteLine($"Service {_serviceName} in manual state {sc.Status} - ignoring...");
-                    NotificationHub.OnManualServiceStateFound(_serviceName, sc.Status.ToString());
-                    return;
+        /// <summary>Check service processor.</summary>
+        /// <param name="state">The state.</param>
+        private async void CheckServiceProcessor(object state)
+        {
+            Console.WriteLine($"CheckServiceProcessor <<< {DateTime.Now} - state: {_state}");
 
-                default:
-                    break;
+            // default to remaining in the same state
+            MonitoringState nextState = _state;
+
+            try
+            {
+
+                switch (_state)
+                {
+                    case MonitoringState.Initializing:
+                        nextState = ProcessStateInitializing();
+                        break;
+
+                    case MonitoringState.Ok:
+                        nextState = await ProcessStateOk();
+                        break;
+
+                    case MonitoringState.WaitingForFirstSuccess:
+                        nextState = await ProcessStateWaitingForFirstSuccess();
+                        break;
+
+                    case MonitoringState.RequestStop:
+                        nextState = await ProcessStateRequestStop();
+                        break;
+
+                    case MonitoringState.WaitingForServiceToStop:
+                        nextState = ProcessStateWaitingForServiceToStop();
+                        break;
+
+                    case MonitoringState.RequestStart:
+                        nextState = ProcessStateRequestStart();
+                        break;
+
+                    default:
+                        break;
+                }
+            }
+            finally
+            {
+                // move to next state - if there is a change, run quickly
+                if (nextState != _state)
+                {
+                    _state = nextState;
+                    _timer?.Change(100, Timeout.Infinite);
+                }
+                else
+                {
+                    // use normal timing
+                    _timer?.Change(_pollingSeconds * 1000, Timeout.Infinite);
+                }
             }
         }
 
@@ -269,25 +359,24 @@ namespace terminology_service_liveness_monitor
             }
 
             string intervalSecondString = Program.Configuration["PollIntervalSeconds"];
-            int seconds;
 
-            if (!int.TryParse(intervalSecondString, out seconds))
+            if (!int.TryParse(intervalSecondString, out _pollingSeconds))
             {
-                seconds = 30;
+                _pollingSeconds = 30;
             }
 
-            while ((seconds * 1000) < _serviceStopDelayMs)
+            while ((_pollingSeconds * 1000) < _serviceStopDelayMs)
             {
-                seconds += 5;
+                _pollingSeconds += 5;
             }
 
-            Console.WriteLine($"HostedMonitorService <<< poll interval seconds: {seconds}");
+            Console.WriteLine($"HostedMonitorService <<< poll interval seconds: {_pollingSeconds}");
 
             _timer = new Timer(
-                CheckServiceAndRestartIfNeeded,
+                CheckServiceProcessor,
                 null,
-                TimeSpan.Zero,
-                TimeSpan.FromSeconds(seconds));
+                _pollingSeconds * 1000,
+                Timeout.Infinite);
 
             return Task.CompletedTask;
         }
@@ -299,6 +388,8 @@ namespace terminology_service_liveness_monitor
         public Task StopAsync(CancellationToken cancellationToken)
         {
             _timer?.Change(Timeout.Infinite, 0);
+            _timer?.Dispose();
+            _timer = null;
 
             return Task.CompletedTask;
         }

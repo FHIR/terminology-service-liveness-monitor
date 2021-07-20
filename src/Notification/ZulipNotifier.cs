@@ -45,23 +45,41 @@ namespace terminology_service_liveness_monitor.Notification
         //private int[] _userIds;
 
         /// <summary>Message describing the current status.</summary>
-        private ulong _currentMessage;
+        private ulong _lastMessageId;
+
+        /// <summary>The last message ticks.</summary>
+        private long _lastMessageTicks;
+
+        /// <summary>Type of the last message.</summary>
+        private NotificationMessageType _lastMessageType;
 
         /// <summary>Values that represent message types.</summary>
         private enum NotificationMessageType
         {
             None,
-            Starting,
-            Started,
-            Stopping,
-            Stopped,
+            Initializing,
             TestFail,
             TestSuccess,
+            Stopping,
+            WaitingStop,
+            Starting,
             WaitingStart,
-            Initializing,
         }
 
-        private NotificationMessageType _lastMessageType;
+        /// <summary>The maximum message frequency in minutes (1 per n minutes), per message type.</summary>
+        private static readonly Dictionary<NotificationMessageType, int> _messageMinuteGate = 
+            new Dictionary<NotificationMessageType, int>()
+        {
+            { NotificationMessageType.None, 0 },
+            { NotificationMessageType.Initializing, 0 },
+            { NotificationMessageType.TestFail, 0 },
+            { NotificationMessageType.TestSuccess, 60 },
+            { NotificationMessageType.Stopping, 0 },
+            { NotificationMessageType.WaitingStop, 1 },
+            { NotificationMessageType.Starting, 0 },
+            { NotificationMessageType.WaitingStart, 1 },
+        };
+
 
         /// <summary>
         /// Initializes a new instance of the
@@ -72,7 +90,7 @@ namespace terminology_service_liveness_monitor.Notification
             _hostId = Program.Configuration["HostId"];
             _serviceName = Program.Configuration["WindowsServiceName"];
 
-            _currentMessage = 0;
+            _lastMessageId = 0;
 
             _streamName = Program.Configuration["Zulip:StreamName"];
 
@@ -142,96 +160,93 @@ namespace terminology_service_liveness_monitor.Notification
 
             SendNotification(
                 NotificationMessageType.Initializing, 
-                $"{DateTime.Now}: Initializing the monitor service, service name: {_serviceName}.");
+                $"Zulip notification bot starting up....");
 
             if (!string.IsNullOrEmpty(_streamName))
             {
-                NotificationHub.Current.ServiceTestFailed += HandleTestFailed;
-                //NotificationHub.Current.ServiceTestPassed += HandleTestPassed;
-                NotificationHub.Current.ServiceTestWaitingStart += HandleWaitingStart;
-                NotificationHub.Current.StartedMonitoredService += HandleStartedMonitoredService;
-                NotificationHub.Current.StartingMonitoredService += HandleStartingMonitoredService;
-                NotificationHub.Current.StoppedMonitoredService += HandleStoppedMonitoredService;
-                NotificationHub.Current.StoppingMonitoredService += HandleStoppingMonitoredService;
+                NotificationHub.Current.MonitorInitializing += HandleMonitorInitializing;
+                NotificationHub.Current.HttpTestFailed += HandleHttpTestFailed;
+                NotificationHub.Current.HttpTestPassed += HandleHttpTestPassed;
+                NotificationHub.Current.StoppingService += HandleStoppingService;
+                NotificationHub.Current.WaitingForServiceToStop += HandleWaitingForServiceToStop;
+                NotificationHub.Current.StartingService += HandleStartingService;
+                NotificationHub.Current.WaitingForFirstSuccess += HandleWaitingForFirstSuccess;
             }
 
             return Task.CompletedTask;
         }
 
-        /// <summary>Handles the stopping monitored service.</summary>
+        /// <summary>Handles the waiting for service to start.</summary>
         /// <param name="sender">Source of the event.</param>
         /// <param name="e">     Event information.</param>
-        private void HandleStoppingMonitoredService(object sender, EventArgs e)
+        private void HandleWaitingForFirstSuccess(object sender, EventArgs e)
         {
             SendNotification(
                 NotificationMessageType.Stopping,
-                $"{DateTime.Now}: Issued stop request, service: {_serviceName}");
+                $"Waiting on first HTTP success from service: {_serviceName} (may take a few minutes)...");
         }
 
-        /// <summary>Handles the stopped monitored service.</summary>
+        /// <summary>Handles the starting service.</summary>
         /// <param name="sender">Source of the event.</param>
         /// <param name="e">     Event information.</param>
-        private void HandleStoppedMonitoredService(object sender, EventArgs e)
+        private void HandleStartingService(object sender, EventArgs e)
         {
             SendNotification(
-                NotificationMessageType.Stopped,
-                $"{DateTime.Now}: Service {_serviceName} is stopped.");
+                NotificationMessageType.Stopping,
+                $"Starting service: {_serviceName} (may take a few minutes)...");
         }
 
-        /// <summary>Handles the starting monitored service.</summary>
+        /// <summary>Handles the waiting for service to stop.</summary>
         /// <param name="sender">Source of the event.</param>
         /// <param name="e">     Event information.</param>
-        private void HandleStartingMonitoredService(object sender, EventArgs e)
-        {
-            _zulipThreadTime = DateTime.Now;
-            UpdateTopic();
-
-            SendNotification(
-                NotificationMessageType.Starting,
-                $"{DateTime.Now}: Issueed start request, service: {_serviceName}");
-        }
-
-        /// <summary>Handles the started monitored service.</summary>
-        /// <param name="sender">Source of the event.</param>
-        /// <param name="e">     Event information.</param>
-        private void HandleStartedMonitoredService(object sender, EventArgs e)
+        private void HandleWaitingForServiceToStop(object sender, EventArgs e)
         {
             SendNotification(
-                NotificationMessageType.Started,
-                $"{DateTime.Now}: Service is up!");
+                NotificationMessageType.WaitingStop,
+                $"Waiting on service ({_serviceName}) to stop.");
         }
 
-        /// <summary>Handles the waiting start.</summary>
+        /// <summary>Handles the stopping service.</summary>
         /// <param name="sender">Source of the event.</param>
         /// <param name="e">     Event information.</param>
-        private void HandleWaitingStart(object sender, EventArgs e)
+        private void HandleStoppingService(object sender, EventArgs e)
         {
             SendNotification(
-                NotificationMessageType.WaitingStart,
-                $"{DateTime.Now}: Waiting on service ({_serviceName}) after start...");
+                NotificationMessageType.Stopping,
+                $"Stopping service ({_serviceName}) due to test failure.");
         }
 
-        /// <summary>Handles the test passed.</summary>
+        /// <summary>Handles the HTTP test passed.</summary>
         /// <param name="sender">Source of the event.</param>
         /// <param name="e">     Event information.</param>
-        private void HandleTestPassed(object sender, EventArgs e)
+        private void HandleHttpTestPassed(object sender, EventArgs e)
         {
-            // bots apparently can't edit messages... researching
+            // bots apparently can't edit stream messages... researching
             //UpdateMessage($"{DateTime.Now}: Service is running.");
 
             SendNotification(
                 NotificationMessageType.TestSuccess,
-                $"{DateTime.Now}: Service is up!");
+                $"Http test passed.");
         }
 
-        /// <summary>Handles the test failed.</summary>
+        /// <summary>Handles the HTTP test failed.</summary>
         /// <param name="sender">Source of the event.</param>
         /// <param name="e">     Event information.</param>
-        private void HandleTestFailed(object sender, EventArgs e)
+        private void HandleHttpTestFailed(object sender, EventArgs e)
         {
             SendNotification(
                 NotificationMessageType.TestFail,
-                $"{DateTime.Now}: Service is down! Will restart...");
+                $"Http Test FAILED! :warning:");
+        }
+
+        /// <summary>Handles the monitor initializing.</summary>
+        /// <param name="sender">Source of the event.</param>
+        /// <param name="e">     Event information.</param>
+        private void HandleMonitorInitializing(object sender, EventArgs e)
+        {
+            SendNotification(
+                NotificationMessageType.Initializing,
+                "Monitoring Service initializing...");
         }
 
         /// <summary>Triggered when the application host is performing a graceful shutdown.</summary>
@@ -242,13 +257,13 @@ namespace terminology_service_liveness_monitor.Notification
         {
             if (_zulipClient != null)
             {
-                NotificationHub.Current.ServiceTestFailed -= HandleTestFailed;
-                //NotificationHub.Current.ServiceTestPassed -= HandleTestPassed;
-                NotificationHub.Current.ServiceTestWaitingStart -= HandleWaitingStart;
-                NotificationHub.Current.StartedMonitoredService -= HandleStartedMonitoredService;
-                NotificationHub.Current.StartingMonitoredService -= HandleStartingMonitoredService;
-                NotificationHub.Current.StoppedMonitoredService -= HandleStoppedMonitoredService;
-                NotificationHub.Current.StoppingMonitoredService -= HandleStoppingMonitoredService;
+                NotificationHub.Current.MonitorInitializing -= HandleMonitorInitializing;
+                NotificationHub.Current.HttpTestFailed -= HandleHttpTestFailed;
+                NotificationHub.Current.HttpTestPassed -= HandleHttpTestPassed;
+                NotificationHub.Current.StoppingService -= HandleStoppingService;
+                NotificationHub.Current.WaitingForServiceToStop -= HandleWaitingForServiceToStop;
+                NotificationHub.Current.StartingService -= HandleStartingService;
+                NotificationHub.Current.WaitingForFirstSuccess -= HandleWaitingForFirstSuccess;
             }
 
             return Task.CompletedTask;
@@ -259,41 +274,41 @@ namespace terminology_service_liveness_monitor.Notification
         /// <param name="content">    The content.</param>
         private async void SendNotification(NotificationMessageType messageType, string content)
         {
-            if (messageType == _lastMessageType)
+            if ((messageType == _lastMessageType) && 
+                (_messageMinuteGate[messageType] != 0))
             {
-                return;
+                int minutes = (int)((DateTime.Now.Ticks - _lastMessageTicks) / TimeSpan.TicksPerMinute);
+                if (minutes < _messageMinuteGate[messageType])
+                {
+                    return;
+                }
             }
 
             try
             {
-                ulong messageId = await _zulipClient.Messages.SendStream(content, _currentTopic, _streamName);
+                ulong messageId;
 
-                _currentMessage = messageId;
-                Console.WriteLine($"ZulipNotifier <<< TrySendStream passed! message: {messageId}");
+                if (_streamName.Contains('@'))
+                {
+                    messageId = await _zulipClient.Messages.SendPrivate(content, _streamName);
+                }
+                else
+                {
+                    messageId = await _zulipClient.Messages.SendStream(content, _currentTopic, _streamName);
+                }
 
+                //ulong messageId = await _zulipClient.Messages.SendStream(content, _currentTopic, _streamName);
+
+                _lastMessageId = messageId;
                 _lastMessageType = messageType;
+                _lastMessageTicks = DateTime.Now.Ticks;
             }
             catch (Exception ex)
             {
                 Console.WriteLine($"ZulipNotifier <<< TrySendStream failed: {ex.Message}");
                 Console.WriteLine(ex.InnerException);
-                _currentMessage = 0;
+                _lastMessageId = 0;
             }
-
-            //var result = await _zulipClient.Messages.TrySendStream(content, _currentTopic, _streamName);
-
-            //if (result.success == true)
-            //{
-            //    _currentMessage = result.messageId;
-            //    Console.WriteLine($"ZulipNotifier <<< TrySendStream passed! message: {result.messageId}");
-            //}
-            //else
-            //{
-            //    Console.WriteLine($"ZulipNotifier <<< TrySendStream failed: {result.details}");
-            //    _currentMessage = 0;
-            //}
-
-            //_lastMessageType = messageType;
         }
 
         /// <summary>Updates the message described by content.</summary>
@@ -301,13 +316,13 @@ namespace terminology_service_liveness_monitor.Notification
         /// <param name="content">    The content.</param>
         private async void UpdateMessage(NotificationMessageType messageType, string content)
         {
-            if (_currentMessage == 0)
+            if (_lastMessageId == 0)
             {
                 SendNotification(messageType, content);
                 return;
             }
 
-            var result = await _zulipClient.Messages.TryEdit(_currentMessage, content);
+            var result = await _zulipClient.Messages.TryEdit(_lastMessageId, content);
 
             if (result.success != true)
             {
