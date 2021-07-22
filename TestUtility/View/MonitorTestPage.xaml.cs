@@ -117,7 +117,7 @@ namespace TestUtility.View
 
         /// <summary>Reads service status.</summary>
         /// <param name="state">The state.</param>
-        private async void ReadServiceStatus(object state)
+        private void ReadServiceStatus(object state)
         {
             ServiceController sc = new ServiceController(_context.ServiceName);
 

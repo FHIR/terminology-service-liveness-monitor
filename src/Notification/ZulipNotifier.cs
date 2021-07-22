@@ -32,8 +32,20 @@ namespace terminology_service_liveness_monitor.Notification
         /// <summary>Name of the service.</summary>
         private string _serviceName;
 
+        /// <summary>True to enable, false to disable.</summary>
+        private bool _enabled;
+
         /// <summary>Stream name to post to.</summary>
         private string _streamName;
+
+        /// <summary>Name of the user.</summary>
+        private string _userName;
+
+        /// <summary>Identifier for the stream.</summary>
+        private int _streamId;
+
+        /// <summary>Identifier for the user.</summary>
+        private int _userId;
 
         /// <summary>The curl command.</summary>
         private string _curlCommand;
@@ -94,7 +106,33 @@ namespace terminology_service_liveness_monitor.Notification
 
             _streamName = Program.Configuration["Zulip:StreamName"];
 
+            string value = Program.Configuration["Zulip:StreamId"];
+            if ((!string.IsNullOrEmpty(value)) && (!int.TryParse(value, out _streamId)))
+            {
+                _streamId = -1;
+            }
+
+            _userName = Program.Configuration["Zulip:UserName"];
+
+            value = Program.Configuration["Zulip:UserId"];
+            if ((!string.IsNullOrEmpty(value)) && (!int.TryParse(value, out _userId)))
+            {
+                _userId = -1;
+            }
+
             _curlCommand = Program.Configuration["CurlCommand"];
+
+            if ((!string.IsNullOrEmpty(_streamName)) ||
+                (!string.IsNullOrEmpty(_userName)) ||
+                (_streamId != -1) ||
+                (_userId != -1))
+            {
+                _enabled = true;
+            }
+            else
+            {
+                _enabled = false;
+            }
 
             // TODO(ginoc): private messages are currently disabled - KISS
             #if CAKE
@@ -136,7 +174,7 @@ namespace terminology_service_liveness_monitor.Notification
         /// <returns>An asynchronous result.</returns>
         public Task StartAsync(CancellationToken cancellationToken)
         {
-            if (string.IsNullOrEmpty(_streamName))
+            if (!_enabled)
             {
                 Console.WriteLine("Zulip notifications are disabled!");
                 return Task.CompletedTask;
@@ -289,15 +327,26 @@ namespace terminology_service_liveness_monitor.Notification
 
             try
             {
-                ulong messageId;
+                ulong messageId = 0;
 
-                if (_streamName.Contains('@'))
-                {
-                    messageId = await _zulipClient.Messages.SendPrivate(content, _streamName);
-                }
-                else
+                if (!string.IsNullOrEmpty(_streamName))
                 {
                     messageId = await _zulipClient.Messages.SendStream(content, _currentTopic, _streamName);
+                }
+
+                if (!string.IsNullOrEmpty(_userName))
+                {
+                    messageId = await _zulipClient.Messages.SendPrivate(content, _userName);
+                }
+
+                if (_streamId != -1)
+                {
+                    messageId = await _zulipClient.Messages.SendStream(content, _currentTopic, _streamId);
+                }
+
+                if (_userId != -1)
+                {
+                    messageId = await _zulipClient.Messages.SendPrivate(content, _userId);
                 }
 
                 //ulong messageId = await _zulipClient.Messages.SendStream(content, _currentTopic, _streamName);
