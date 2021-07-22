@@ -109,7 +109,7 @@ namespace terminology_service_liveness_monitor.Notification
             string value = Program.Configuration["Zulip:StreamId"];
             if ((!string.IsNullOrEmpty(value)) && (!int.TryParse(value, out _streamId)))
             {
-                _streamId = -1;
+                _streamId = 0;
             }
 
             _userName = Program.Configuration["Zulip:UserName"];
@@ -117,15 +117,15 @@ namespace terminology_service_liveness_monitor.Notification
             value = Program.Configuration["Zulip:UserId"];
             if ((!string.IsNullOrEmpty(value)) && (!int.TryParse(value, out _userId)))
             {
-                _userId = -1;
+                _userId = 0;
             }
 
             _curlCommand = Program.Configuration["CurlCommand"];
 
             if ((!string.IsNullOrEmpty(_streamName)) ||
                 (!string.IsNullOrEmpty(_userName)) ||
-                (_streamId != -1) ||
-                (_userId != -1))
+                (_streamId != 0) ||
+                (_userId != 0))
             {
                 _enabled = true;
             }
@@ -327,33 +327,30 @@ namespace terminology_service_liveness_monitor.Notification
 
             try
             {
-                ulong messageId = 0;
+                _lastMessageType = messageType;
+                _lastMessageTicks = DateTime.Now.Ticks;
 
                 if (!string.IsNullOrEmpty(_streamName))
                 {
-                    messageId = await _zulipClient.Messages.SendStream(content, _currentTopic, _streamName);
+                    _lastMessageId = await _zulipClient.Messages.SendStream(content, _currentTopic, _streamName);
                 }
 
                 if (!string.IsNullOrEmpty(_userName))
                 {
-                    messageId = await _zulipClient.Messages.SendPrivate(content, _userName);
+                    _lastMessageId = await _zulipClient.Messages.SendPrivate(content, _userName);
                 }
 
-                if (_streamId != -1)
+                if (_streamId != 0)
                 {
-                    messageId = await _zulipClient.Messages.SendStream(content, _currentTopic, _streamId);
+                    _lastMessageId = await _zulipClient.Messages.SendStream(content, _currentTopic, _streamId);
                 }
 
-                if (_userId != -1)
+                if (_userId != 0)
                 {
-                    messageId = await _zulipClient.Messages.SendPrivate(content, _userId);
+                    _lastMessageId = await _zulipClient.Messages.SendPrivate(content, _userId);
                 }
 
                 //ulong messageId = await _zulipClient.Messages.SendStream(content, _currentTopic, _streamName);
-
-                _lastMessageId = messageId;
-                _lastMessageType = messageType;
-                _lastMessageTicks = DateTime.Now.Ticks;
             }
             catch (Exception ex)
             {
