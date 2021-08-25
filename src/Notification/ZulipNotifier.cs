@@ -260,24 +260,42 @@ namespace terminology_service_liveness_monitor.Notification
         /// <summary>Handles the HTTP test passed.</summary>
         /// <param name="sender">Source of the event.</param>
         /// <param name="e">     Event information.</param>
-        private void HandleHttpTestPassed(object sender, EventArgs e)
+        private void HandleHttpTestPassed(object sender, NotificationEventArgs e)
         {
             // bots apparently can't edit stream messages... researching
             //UpdateMessage($"{DateTime.Now}: Service is running.");
 
             SendNotification(
                 NotificationMessageType.TestSuccess,
-                $"Http test passed.");
+                $"Http test passed!" +
+                $" Status: `{e.HttpStatusCode}`" +
+                $" in `{e.TestTimeInMS} ms`" +
+                $" (`{(double)e.TestTimeInMS / 1000.0} s`).");
         }
 
         /// <summary>Handles the HTTP test failed.</summary>
         /// <param name="sender">Source of the event.</param>
         /// <param name="e">     Event information.</param>
-        private void HandleHttpTestFailed(object sender, EventArgs e)
+        private void HandleHttpTestFailed(object sender, NotificationEventArgs e)
         {
-            SendNotification(
-                NotificationMessageType.TestFail,
-                $"Http Test FAILED! :warning:");
+            if (e.HttpStatusCode == 0)
+            {
+                SendNotification(
+                    NotificationMessageType.TestFail,
+                    $":warning: Http Test FAILED" +
+                    $" - no response in `{e.TestTimeInMS} ms`" +
+                    $" ({(double)e.TestTimeInMS/1000.0} s)." +
+                    $" Failure {e.FailureNumber} of {e.MaxFailureCount} before restart.");
+            }
+            else
+            {
+                SendNotification(
+                    NotificationMessageType.TestFail,
+                    $":warning: Http Test FAILED" +
+                    $" - Status: `{e.HttpStatusCode}` in `{e.TestTimeInMS} ms`" +
+                    $" (`{(double)e.TestTimeInMS / 1000.0} s`)." +
+                    $" Failure {e.FailureNumber} of {e.MaxFailureCount} before restart.");
+            }
         }
 
         /// <summary>Handles the monitor initializing.</summary>

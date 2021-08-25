@@ -42,6 +42,14 @@ namespace terminology_service_liveness_monitor
         /// <summary>The accept header.</summary>
         private static string _acceptHeader;
 
+        /// <summary>The HTTP timeout in seconds.</summary>
+        private int _httpTimeoutSeconds;
+
+        /// <summary>The failures to restart.</summary>
+        private int _failuresUntilRestart;
+
+        private int _currentFailures;
+
         /// <summary>The state.</summary>
         private static MonitoringState _state;
 
@@ -67,9 +75,11 @@ namespace terminology_service_liveness_monitor
 
         /// <summary>Tests service.</summary>
         /// <returns>True if the test passes, false if the test fails.</returns>
-        private async Task<bool> TestService()
+        private async Task<HttpResponseMessage> TestService()
         {
             HttpClient client = new HttpClient();
+
+            client.Timeout = TimeSpan.FromSeconds(_httpTimeoutSeconds);
 
             try
             {
@@ -83,17 +93,23 @@ namespace terminology_service_liveness_monitor
 
                 if (response.IsSuccessStatusCode)
                 {
-                    return true;
+                    Console.WriteLine($"Request to {_serviceUrl} passed: {response.StatusCode}!");
+                }
+                else
+                {
+                    Console.WriteLine($"Request to {_serviceUrl} failed: {response.StatusCode}!");
                 }
 
-                Console.WriteLine($"Request to {_serviceUrl} failed: {response.StatusCode}!");
+                return response;
+
+
             }
             catch (Exception ex)
             {
                 Console.WriteLine($"Request to {_serviceUrl} failed: {ex.Message}");
             }
 
-            return false;
+            return null;
         }
 
         /// <summary>Query if this object is service stopped.</summary>
@@ -156,6 +172,8 @@ namespace terminology_service_liveness_monitor
         {
             try
             {
+                _currentFailures = 0;
+
                 // raise the starting service event
                 NotificationHub.OnStartingService(_serviceName);
 
@@ -174,6 +192,8 @@ namespace terminology_service_liveness_monitor
         /// <returns>The next MonitoringState.</returns>
         private MonitoringState ProcessStateInitializing()
         {
+            _currentFailures = 0;
+
             NotificationHub.OnMonitorInitializing();
 
             // during startup, assume we are waiting on the monitored service
@@ -184,17 +204,40 @@ namespace terminology_service_liveness_monitor
         /// <returns>An asynchronous result that yields a MonitoringState.</returns>
         private async Task<MonitoringState> ProcessStateOk()
         {
-            bool testPassed = await TestService();
+            Stopwatch timingWatch = Stopwatch.StartNew();
 
-            if (testPassed)
+            HttpResponseMessage response = await TestService();
+
+            long testMS = timingWatch.ElapsedMilliseconds;
+
+            if ((response != null) && (response.IsSuccessStatusCode))
             {
-                NotificationHub.OnHttpTestPassed(_serviceName, _serviceUrl);
+                NotificationHub.OnHttpTestPassed(
+                    _serviceName,
+                    _serviceUrl,
+                    (int)response.StatusCode,
+                    testMS);
+
+                _currentFailures = 0;
 
                 // continue monitoring
                 return MonitoringState.Ok;
             }
 
-            NotificationHub.OnHttpTestFailed(_serviceName, _serviceUrl);
+            _currentFailures++;
+
+            NotificationHub.OnHttpTestFailed(
+                _serviceName, 
+                _serviceUrl, 
+                response != null ? (int)response.StatusCode : 0,
+                testMS,
+                _currentFailures,
+                _failuresUntilRestart);
+
+            if (_currentFailures < _failuresUntilRestart)
+            {
+                return MonitoringState.Ok;
+            }
 
             // restart the service
             return MonitoringState.RequestStop;
@@ -204,11 +247,21 @@ namespace terminology_service_liveness_monitor
         /// <returns>An asynchronous result that yields a MonitoringState.</returns>
         private async Task<MonitoringState> ProcessStateWaitingForFirstSuccess()
         {
-            bool testPassed = await TestService();
+            _currentFailures = 0;
 
-            if (testPassed)
+            Stopwatch timingWatch = Stopwatch.StartNew();
+
+            HttpResponseMessage response = await TestService();
+
+            long testMS = timingWatch.ElapsedMilliseconds;
+
+            if ((response != null) && (response.IsSuccessStatusCode))
             {
-                NotificationHub.OnHttpTestPassed(_serviceName, _serviceUrl);
+                NotificationHub.OnHttpTestPassed(
+                    _serviceName,
+                    _serviceUrl,
+                    (int)response.StatusCode,
+                    testMS);
 
                 // move to standard monitoring
                 return MonitoringState.Ok;
@@ -314,6 +367,7 @@ namespace terminology_service_liveness_monitor
         {
             Console.WriteLine("HostedMonitorService <<< Starting...");
 
+            _currentFailures = 0;
             _serviceName = Program.Configuration["WindowsServiceName"];
             _processName = Program.Configuration["ProcessName"];
             _serviceUrl = Program.Configuration["ServiceTestUrl"];
@@ -371,6 +425,29 @@ namespace terminology_service_liveness_monitor
             }
 
             Console.WriteLine($"HostedMonitorService <<< poll interval seconds: {_pollingSeconds}");
+
+            if (int.TryParse(Program.Configuration["HttpTimeoutSeconds"], out int httpTimeoutSeconds))
+            {
+                _httpTimeoutSeconds = httpTimeoutSeconds;
+            }
+            else
+            {
+                _httpTimeoutSeconds = 100;
+            }
+
+            Console.WriteLine($"HostedMonitorService <<< HTTP Request Timeout seconds: {_httpTimeoutSeconds}");
+
+            if (int.TryParse(Program.Configuration["FailuresUntilRestart"], out int failuresUntilRestart))
+            {
+                _failuresUntilRestart = failuresUntilRestart;
+            }
+            else
+            {
+                _failuresUntilRestart = 1;
+            }
+
+            Console.WriteLine($"HostedMonitorService <<< Failures until a restart is issued: {_failuresUntilRestart}");
+            
 
             _timer = new Timer(
                 CheckServiceProcessor,
