@@ -7,6 +7,7 @@ using System.Reflection;
 using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
+using terminology_service_liveness_monitor.Models;
 using zulip_cs_lib;
 
 namespace terminology_service_liveness_monitor.Notification
@@ -64,6 +65,9 @@ namespace terminology_service_liveness_monitor.Notification
 
         /// <summary>Type of the last message.</summary>
         private NotificationMessageType _lastMessageType;
+
+        /// <summary>Cached test information.</summary>
+        private List<TestInfo> _cachedTestInfo;
 
         /// <summary>Values that represent message types.</summary>
         private enum NotificationMessageType
@@ -134,39 +138,7 @@ namespace terminology_service_liveness_monitor.Notification
                 _enabled = false;
             }
 
-            // TODO(ginoc): private messages are currently disabled - KISS
-            #if CAKE
-            configValue = Program.Configuration["Zulip:PrivateMessageUsers"];
-            if (!string.IsNullOrEmpty(configValue))
-            {
-                string[] splitValue = configValue.Split(',');
-
-                List<string> strings = new List<string>();
-                List<int> ints = new List<int>();
-
-                foreach (string stringValue in splitValue)
-                {
-                    if (int.TryParse(stringValue, out int intValue))
-                    {
-                        ints.Add(intValue);
-                    }
-                    else
-                    {
-                        strings.Add(stringValue);
-                    }
-                }
-
-                if (ints.Count != 0)
-                {
-                    _userIds = ints.ToArray();
-                }
-
-                if (strings.Count != 0)
-                {
-                    _userNames = strings.ToArray();
-                }
-            }
-            #endif
+            _cachedTestInfo = new List<TestInfo>();
         }
 
         /// <summary>Triggered when the application host is ready to start the service.</summary>
@@ -265,12 +237,131 @@ namespace terminology_service_liveness_monitor.Notification
             // bots apparently can't edit stream messages... researching
             //UpdateMessage($"{DateTime.Now}: Service is running.");
 
-            SendNotification(
-                NotificationMessageType.TestSuccess,
-                $"Http test passed!" +
-                $" Status: `{e.HttpStatusCode}`" +
-                $" in `{e.TestTimeInMS} ms`" +
-                $" (`{(double)e.TestTimeInMS / 1000.0} s`).");
+            if (ShouldQueueMessage(NotificationMessageType.TestSuccess))
+            {
+                _cachedTestInfo.Add(e.NotificationTestInfo);
+            }
+            else
+            {
+                SendNotification(
+                    NotificationMessageType.TestSuccess,
+                    BuildTextForTestInfo(e.NotificationTestInfo, true));
+
+                _cachedTestInfo.Clear();
+            }
+        }
+
+        /// <summary>Builds text for test information.</summary>
+        /// <param name="info">  The information.</param>
+        /// <param name="passed">True if passed.</param>
+        /// <returns>A string.</returns>
+        private string BuildTextForTestInfo(TestInfo info, bool passed)
+        {
+            StringBuilder builder = new StringBuilder();
+
+            bool useSpoiler = _cachedTestInfo.Any();
+
+            if (passed)
+            {
+                builder.AppendLine("Http test passed!");
+            }
+            else
+            {
+                builder.AppendLine(":warning: Http test failed!");
+            }
+
+            if (info.HttpException != null)
+            {
+                builder.AppendLine(":double_exclamation: Exception during HTTP request!");
+                builder.AppendLine($"`{info.HttpException.Message}`");
+            }
+
+            if (info.ProcInfoException != null)
+            {
+                builder.AppendLine(":double_exclamation: Exception getting process info!");
+                builder.AppendLine($"`{info.ProcInfoException.Message}`");
+            }
+
+            if (info.NetInfoException != null)
+            {
+                builder.AppendLine(":double_exclamation: Exception getting network info!");
+                builder.AppendLine($"`{info.NetInfoException.Message}`");
+            }
+
+            if (useSpoiler)
+            {
+                builder.AppendLine("```spoiler");
+            }
+
+            builder.AppendLine("```console");
+
+            builder.Append("Reqest Time|");
+            builder.Append("      Http    |");
+            builder.Append("  MS  |");
+            builder.Append(" Fail |");
+            builder.Append("  Working  |");
+            builder.Append("   Paged   |");
+            builder.Append("  Private  |");
+            builder.Append("Handles|");
+            builder.Append("v4 Current|");
+            builder.Append("v4 Failed|");
+            builder.Append(" v4 Reset|");
+            //builder.Append("123456789012345678901234567890");
+            builder.AppendLine();
+
+            builder.Append("-----------+");
+            builder.Append("--------------+");
+            builder.Append("------+");
+            builder.Append("------+");
+            builder.Append("-----------+");
+            builder.Append("-----------+");
+            builder.Append("-----------+");
+            builder.Append("-------+");
+            builder.Append("----------+");
+            builder.Append("---------+");
+            builder.Append("---------+");
+            builder.AppendLine();
+
+            builder.Append($"{info.TestDateTime.ToLongTimeString(),11}|");
+            builder.Append($"{(int)info.HttpStatusCode}:{info.HttpStatusCode,-10}|");
+            builder.Append($"{info.TestTimeInMS,6}|");
+            builder.Append($" {info.FailureNumber}/{info.MaxFailureCount}  |");
+            builder.Append($"{info.WorkingSet,11}|");
+            builder.Append($"{info.PagedMemorySize,11}|");
+            builder.Append($"{info.PrivateMemorySize,11}|");
+            builder.Append($"{info.HandleCount,7}|");
+            builder.Append($"{info.TcpStatsV4.CurrentConnections,10}|");
+            builder.Append($"{info.TcpStatsV4.FailedConnections,9}|");
+            builder.Append($"{info.TcpStatsV4.ResetConenctions,9}|");
+            builder.AppendLine();
+
+            if (_cachedTestInfo.Any())
+            {
+                foreach (TestInfo cached in _cachedTestInfo)
+                {
+                    builder.Append($"{cached.TestDateTime.ToLongTimeString(),11}|");
+                    builder.Append($"{(int)cached.HttpStatusCode}:{cached.HttpStatusCode,-10}|");
+                    builder.Append($"{cached.TestTimeInMS,6}|");
+                    builder.Append($" {cached.FailureNumber}/{cached.MaxFailureCount}  |");
+                    builder.Append($"{cached.WorkingSet,11}|");
+                    builder.Append($"{cached.PagedMemorySize,11}|");
+                    builder.Append($"{cached.PrivateMemorySize,11}|");
+                    builder.Append($"{cached.HandleCount,7}|");
+                    builder.Append($"{cached.TcpStatsV4.CurrentConnections,10}|");
+                    builder.Append($"{cached.TcpStatsV4.FailedConnections,9}|");
+                    builder.Append($"{cached.TcpStatsV4.ResetConenctions,9}|");
+                    builder.AppendLine();
+                }
+            }
+
+            builder.AppendLine("```");
+
+            if (useSpoiler)
+            {
+                builder.AppendLine("```");
+            }
+
+            return builder.ToString();
         }
 
         /// <summary>Handles the HTTP test failed.</summary>
@@ -278,24 +369,38 @@ namespace terminology_service_liveness_monitor.Notification
         /// <param name="e">     Event information.</param>
         private void HandleHttpTestFailed(object sender, NotificationEventArgs e)
         {
-            if (e.HttpStatusCode == 0)
+            if (ShouldQueueMessage(NotificationMessageType.TestFail))
             {
-                SendNotification(
-                    NotificationMessageType.TestFail,
-                    $":warning: Http Test FAILED" +
-                    $" - no response in `{e.TestTimeInMS} ms`" +
-                    $" ({(double)e.TestTimeInMS/1000.0} s)." +
-                    $" Failure {e.FailureNumber} of {e.MaxFailureCount} before restart.");
+                _cachedTestInfo.Add(e.NotificationTestInfo);
             }
             else
             {
                 SendNotification(
                     NotificationMessageType.TestFail,
-                    $":warning: Http Test FAILED" +
-                    $" - Status: `{e.HttpStatusCode}` in `{e.TestTimeInMS} ms`" +
-                    $" (`{(double)e.TestTimeInMS / 1000.0} s`)." +
-                    $" Failure {e.FailureNumber} of {e.MaxFailureCount} before restart.");
+                    BuildTextForTestInfo(e.NotificationTestInfo, false));
+
+                _cachedTestInfo.Clear();
             }
+
+
+            //if (e.HttpStatusCode == 0)
+            //{
+            //    SendNotification(
+            //        NotificationMessageType.TestFail,
+            //        $":warning: Http Test FAILED" +
+            //        $" - no response in `{e.TestTimeInMS} ms`" +
+            //        $" ({(double)e.TestTimeInMS/1000.0} s)." +
+            //        $" Failure {e.FailureNumber} of {e.MaxFailureCount} before restart.");
+            //}
+            //else
+            //{
+            //    SendNotification(
+            //        NotificationMessageType.TestFail,
+            //        $":warning: Http Test FAILED" +
+            //        $" - Status: `{e.HttpStatusCode}` in `{e.TestTimeInMS} ms`" +
+            //        $" (`{(double)e.TestTimeInMS / 1000.0} s`)." +
+            //        $" Failure {e.FailureNumber} of {e.MaxFailureCount} before restart.");
+            //}
         }
 
         /// <summary>Handles the monitor initializing.</summary>
@@ -328,10 +433,30 @@ namespace terminology_service_liveness_monitor.Notification
             return Task.CompletedTask;
         }
 
+        /// <summary>Determine if we should queue message.</summary>
+        /// <param name="messageType">Type of the message.</param>
+        /// <returns>True if it succeeds, false if it fails.</returns>
+        private bool ShouldQueueMessage(NotificationMessageType messageType)
+        {
+            if ((messageType == _lastMessageType) &&
+                (_messageMinuteGate[messageType] != 0))
+            {
+                int minutes = (int)((DateTime.Now.Ticks - _lastMessageTicks) / TimeSpan.TicksPerMinute);
+                if (minutes < _messageMinuteGate[messageType])
+                {
+                    return true;
+                }
+            }
+
+            return false;
+        }
+
         /// <summary>Sends a notification.</summary>
         /// <param name="messageType">Type of the message.</param>
         /// <param name="content">    The content.</param>
-        private async void SendNotification(NotificationMessageType messageType, string content)
+        private async void SendNotification(
+            NotificationMessageType messageType,
+            string content)
         {
             if ((messageType == _lastMessageType) && 
                 (_messageMinuteGate[messageType] != 0))

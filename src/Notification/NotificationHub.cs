@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.Linq;
 using System.Text;
 using System.Threading.Tasks;
+using terminology_service_liveness_monitor.Models;
 
 namespace terminology_service_liveness_monitor.Notification
 {
@@ -62,50 +63,47 @@ namespace terminology_service_liveness_monitor.Notification
         }
 
         /// <summary>Raises the http test failed event.</summary>
-        /// <param name="serviceName">    Name of the service.</param>
-        /// <param name="serviceUrl">     URL of the service.</param>
-        /// <param name="httpStatusCode"> The HTTP status code.</param>
-        /// <param name="timeInMS">       The time in milliseconds.</param>
-        /// <param name="failureNumber">  The failure number.</param>
-        /// <param name="maxFailureCount">Number of maximum failures.</param>
+        /// <param name="serviceName">Name of the service.</param>
+        /// <param name="serviceUrl"> URL of the service.</param>
+        /// <param name="info">       The service test information.</param>
         public static void OnHttpTestFailed(
             string serviceName,
             string serviceUrl,
-            int httpStatusCode,
-            long timeInMS,
-            int failureNumber,
-            int maxFailureCount)
+            TestInfo info)
         {
-            Console.WriteLine($"NotificationHub << {DateTime.Now} - Http test FAILED ({httpStatusCode}) - {timeInMS} ms.");
+            Console.WriteLine($"NotificationHub <<" +
+                $" {DateTime.Now}" +
+                $" - Http test FAILED" +
+                $" ({info.HttpStatusCode})" +
+                $" - {info.TestTimeInMS} ms.");
+
             _current.HttpTestFailed?.Invoke(
                 _current,
                 new NotificationEventArgs()
                 {
-                    HttpStatusCode = httpStatusCode,
-                    TestTimeInMS = timeInMS,
-                    FailureNumber = failureNumber,
-                    MaxFailureCount = maxFailureCount,
+                    NotificationTestInfo = info,
                 });
         }
 
         /// <summary>Raises the http test passed event.</summary>
-        /// <param name="serviceName">   Name of the service.</param>
-        /// <param name="serviceUrl">    URL of the service.</param>
-        /// <param name="httpStatusCode">The HTTP status code.</param>
-        /// <param name="timeInMS">      The time in milliseconds.</param>
+        /// <param name="serviceName">Name of the service.</param>
+        /// <param name="serviceUrl"> URL of the service.</param>
+        /// <param name="info">       The service test information.</param>
         public static void OnHttpTestPassed(
             string serviceName,
             string serviceUrl,
-            int httpStatusCode,
-            long timeInMS)
+            TestInfo info)
         {
-            Console.WriteLine($"NotificationHub <<< {DateTime.Now} - Http test passed ({httpStatusCode}) - {timeInMS} ms.");
+            Console.WriteLine($"NotificationHub <<<" +
+                $" {DateTime.Now}" +
+                $" - Http test passed ({info.HttpStatusCode})" +
+                $" - {info.TestTimeInMS} ms.");
+
             _current.HttpTestPassed?.Invoke(
                 _current,
                 new NotificationEventArgs()
                 {
-                    HttpStatusCode = httpStatusCode,
-                    TestTimeInMS = timeInMS,
+                    NotificationTestInfo = info,
                 });
         }
 

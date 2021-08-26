@@ -4,10 +4,12 @@ using System.Collections.Generic;
 using System.Diagnostics;
 using System.Linq;
 using System.Net.Http;
+using System.Net.NetworkInformation;
 using System.ServiceProcess;
 using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
+using terminology_service_liveness_monitor.Models;
 using terminology_service_liveness_monitor.Notification;
 
 namespace terminology_service_liveness_monitor
@@ -75,11 +77,82 @@ namespace terminology_service_liveness_monitor
 
         /// <summary>Tests service.</summary>
         /// <returns>True if the test passes, false if the test fails.</returns>
-        private async Task<HttpResponseMessage> TestService()
+        private async Task<TestInfo> TestService()
         {
             HttpClient client = new HttpClient();
 
             client.Timeout = TimeSpan.FromSeconds(_httpTimeoutSeconds);
+
+            TestInfo info = new TestInfo()
+            {
+                ServiceName = _serviceName,
+                TestUrl = _serviceUrl,
+                TestDateTime = DateTime.Now,
+            };
+
+            if (!string.IsNullOrEmpty(_processName))
+            {
+                try
+                {
+                    Process[] processes = Process.GetProcesses();
+                    foreach (Process proc in processes)
+                    {
+                        if (proc.ProcessName != _processName)
+                        {
+                            continue;
+                        }
+
+                        info.HandleCount = proc.HandleCount;
+                        info.WorkingSet = proc.WorkingSet64;
+                        info.PagedMemorySize = proc.PagedMemorySize64;
+                        info.PrivateMemorySize = proc.PrivateMemorySize64;
+                        info.VirtualMemorySize = proc.VirtualMemorySize64;
+
+                        break;
+                    }
+                }
+                catch (Exception ex)
+                {
+                    Console.WriteLine($"Failed to get information about process {_processName}: {ex.Message}");
+                    info.ProcInfoException = ex;
+                }
+            }
+
+            try
+            {
+                IPGlobalProperties prop = IPGlobalProperties.GetIPGlobalProperties();
+
+                TcpStatistics tcp4 = prop.GetTcpIPv4Statistics();
+
+                info.TcpStatsV4 = new TcpStats()
+                {
+                    CurrentConnections = tcp4.CurrentConnections,
+                    CumulativeConnections = tcp4.CumulativeConnections,
+                    InitiatedConnections = tcp4.ConnectionsInitiated,
+                    AcceptedConnections = tcp4.ConnectionsAccepted,
+                    FailedConnections = tcp4.FailedConnectionAttempts,
+                    ResetConenctions = tcp4.ResetConnections,
+                };
+
+                TcpStatistics tcp6 = prop.GetTcpIPv6Statistics();
+
+                info.TcpStatsV6 = new TcpStats()
+                {
+                    CurrentConnections = tcp6.CurrentConnections,
+                    CumulativeConnections = tcp6.CumulativeConnections,
+                    InitiatedConnections = tcp6.ConnectionsInitiated,
+                    AcceptedConnections = tcp6.ConnectionsAccepted,
+                    FailedConnections = tcp6.FailedConnectionAttempts,
+                    ResetConenctions = tcp6.ResetConnections,
+                };
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"Failed to get current network info: {ex.Message}");
+                info.NetInfoException = ex;
+            }
+
+            Stopwatch timingWatch = Stopwatch.StartNew();
 
             try
             {
@@ -91,6 +164,9 @@ namespace terminology_service_liveness_monitor
 
                 HttpResponseMessage response = await client.SendAsync(httpRequest);
 
+                info.HttpStatusCode = response.StatusCode;
+                info.IsSuccessStatusCode = response.IsSuccessStatusCode;
+
                 if (response.IsSuccessStatusCode)
                 {
                     Console.WriteLine($"Request to {_serviceUrl} passed: {response.StatusCode}!");
@@ -99,17 +175,17 @@ namespace terminology_service_liveness_monitor
                 {
                     Console.WriteLine($"Request to {_serviceUrl} failed: {response.StatusCode}!");
                 }
-
-                return response;
-
-
             }
             catch (Exception ex)
             {
                 Console.WriteLine($"Request to {_serviceUrl} failed: {ex.Message}");
+                info.HttpException = ex;
+                info.IsSuccessStatusCode = false;
             }
 
-            return null;
+            info.TestTimeInMS = timingWatch.ElapsedMilliseconds;
+
+            return info;
         }
 
         /// <summary>Query if this object is service stopped.</summary>
@@ -204,19 +280,14 @@ namespace terminology_service_liveness_monitor
         /// <returns>An asynchronous result that yields a MonitoringState.</returns>
         private async Task<MonitoringState> ProcessStateOk()
         {
-            Stopwatch timingWatch = Stopwatch.StartNew();
+            TestInfo info = await TestService();
 
-            HttpResponseMessage response = await TestService();
-
-            long testMS = timingWatch.ElapsedMilliseconds;
-
-            if ((response != null) && (response.IsSuccessStatusCode))
+            if ((info != null) && (info.IsSuccessStatusCode))
             {
                 NotificationHub.OnHttpTestPassed(
                     _serviceName,
                     _serviceUrl,
-                    (int)response.StatusCode,
-                    testMS);
+                    info);
 
                 _currentFailures = 0;
 
@@ -226,13 +297,13 @@ namespace terminology_service_liveness_monitor
 
             _currentFailures++;
 
+            info.FailureNumber = _currentFailures;
+            info.MaxFailureCount = _failuresUntilRestart;
+
             NotificationHub.OnHttpTestFailed(
                 _serviceName, 
                 _serviceUrl, 
-                response != null ? (int)response.StatusCode : 0,
-                testMS,
-                _currentFailures,
-                _failuresUntilRestart);
+                info);
 
             if (_currentFailures < _failuresUntilRestart)
             {
@@ -249,19 +320,14 @@ namespace terminology_service_liveness_monitor
         {
             _currentFailures = 0;
 
-            Stopwatch timingWatch = Stopwatch.StartNew();
+            TestInfo info = await TestService();
 
-            HttpResponseMessage response = await TestService();
-
-            long testMS = timingWatch.ElapsedMilliseconds;
-
-            if ((response != null) && (response.IsSuccessStatusCode))
+            if ((info != null) && (info.IsSuccessStatusCode))
             {
                 NotificationHub.OnHttpTestPassed(
                     _serviceName,
                     _serviceUrl,
-                    (int)response.StatusCode,
-                    testMS);
+                    info);
 
                 // move to standard monitoring
                 return MonitoringState.Ok;
