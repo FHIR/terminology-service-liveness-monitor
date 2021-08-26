@@ -322,7 +322,7 @@ namespace terminology_service_liveness_monitor.Notification
             builder.Append($"| {(int)info.HttpStatusCode}:{info.HttpStatusCode} ");
             builder.Append($"| {info.TestTimeInMS} ");
             builder.Append($"| {info.FailureNumber}/{info.MaxFailureCount} ");
-            builder.Append($"| {((double)info.WorkingSet/(1024.0 * 1024.0)),5:6} ");
+            builder.Append($"| {((double)info.WorkingSet/(1024.0 * 1024.0)).ToString("F3")} ");
             builder.Append($"| {info.HandleCount} ");
             builder.Append($"| {info.ThreadCount} ");
             builder.Append($"| {info.TcpStatsV4.CurrentConnections}");
@@ -338,7 +338,7 @@ namespace terminology_service_liveness_monitor.Notification
                     builder.Append($"| {(int)cached.HttpStatusCode}:{info.HttpStatusCode} ");
                     builder.Append($"| {cached.TestTimeInMS} ");
                     builder.Append($"| {cached.FailureNumber}/{cached.MaxFailureCount} ");
-                    builder.Append($"| {((double)cached.WorkingSet / (1024.0 * 1024.0)),9:2} ");
+                    builder.Append($"| {((double)cached.WorkingSet / (1024.0 * 1024.0)).ToString("F3")} ");
                     builder.Append($"| {cached.HandleCount} ");
                     builder.Append($"| {cached.ThreadCount} ");
                     builder.Append($"| {cached.TcpStatsV4.CurrentConnections}");
