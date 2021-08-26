@@ -62,6 +62,9 @@ namespace terminology_service_liveness_monitor.Models
         /// <summary>Gets or sets the number of handles.</summary>
         public int HandleCount { get; set; }
 
+        /// <summary>Gets or sets the number of handles.</summary>
+        public int ThreadCount { get; set; }
+
         /// <summary>Gets or sets the TCP statistics v 4.</summary>
         public TcpStats TcpStatsV4 { get; set; }
 
