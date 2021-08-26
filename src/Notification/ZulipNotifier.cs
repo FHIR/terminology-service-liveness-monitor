@@ -293,6 +293,7 @@ namespace terminology_service_liveness_monitor.Notification
                 builder.AppendLine("```spoiler");
             }
 
+            builder.Append("> ");
             builder.Append("| Time ");
             builder.Append("| HTTP");
             builder.Append("| ms");
@@ -301,8 +302,10 @@ namespace terminology_service_liveness_monitor.Notification
             builder.Append("| Handles");
             builder.Append("| Threads");
             builder.Append("| #Conn");
+            builder.Append("|");
             builder.AppendLine();
 
+            builder.Append("> ");
             builder.Append("|---");
             builder.Append("|---");
             builder.Append("|---");
@@ -311,35 +314,38 @@ namespace terminology_service_liveness_monitor.Notification
             builder.Append("|---");
             builder.Append("|---");
             builder.Append("|---");
+            builder.Append("|");
             builder.AppendLine();
 
+            builder.Append("> ");
             builder.Append($"| {info.TestDateTime.ToLongTimeString()} ");
             builder.Append($"| {(int)info.HttpStatusCode}:{info.HttpStatusCode} ");
             builder.Append($"| {info.TestTimeInMS} ");
             builder.Append($"| {info.FailureNumber}/{info.MaxFailureCount} ");
-            builder.Append($"| {((double)info.WorkingSet/(1024.0 * 1024.0 * 1024.0)),5:6} ");
+            builder.Append($"| {((double)info.WorkingSet/(1024.0 * 1024.0)),5:6} ");
             builder.Append($"| {info.HandleCount} ");
             builder.Append($"| {info.ThreadCount} ");
             builder.Append($"| {info.TcpStatsV4.CurrentConnections}");
+            builder.Append("|");
             builder.AppendLine();
 
             if (_cachedTestInfo.Any())
             {
                 foreach (TestInfo cached in _cachedTestInfo)
                 {
+                    builder.Append("> ");
                     builder.Append($"| {cached.TestDateTime.ToLongTimeString()} ");
                     builder.Append($"| {(int)cached.HttpStatusCode}:{info.HttpStatusCode} ");
                     builder.Append($"| {cached.TestTimeInMS} ");
                     builder.Append($"| {cached.FailureNumber}/{cached.MaxFailureCount} ");
-                    builder.Append($"| {((double)cached.WorkingSet / (1024.0 * 1024.0 * 1024.0)),5:6} ");
+                    builder.Append($"| {((double)cached.WorkingSet / (1024.0 * 1024.0)),9:2} ");
                     builder.Append($"| {cached.HandleCount} ");
                     builder.Append($"| {cached.ThreadCount} ");
                     builder.Append($"| {cached.TcpStatsV4.CurrentConnections}");
+                    builder.Append("|");
                     builder.AppendLine();
                 }
             }
-
-            builder.AppendLine("```");
 
             if (useSpoiler)
             {
