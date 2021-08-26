@@ -103,7 +103,8 @@ namespace terminology_service_liveness_monitor
                         }
 
                         info.HandleCount = proc.HandleCount;
-                        info.WorkingSet = proc.WorkingSet64;
+                        info.ThreadCount = proc.Threads.Count;
+                        info.WorkingSet = proc.WorkingSet64 / (1024 * 1024);
                         info.PagedMemorySize = proc.PagedMemorySize64;
                         info.PrivateMemorySize = proc.PrivateMemorySize64;
                         info.VirtualMemorySize = proc.VirtualMemorySize64;
