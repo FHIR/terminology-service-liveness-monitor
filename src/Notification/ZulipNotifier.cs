@@ -176,7 +176,10 @@ namespace terminology_service_liveness_monitor.Notification
 
             SendNotification(
                 NotificationMessageType.Initializing, 
-                $"Zulip notification bot starting up....");
+                $"Zulip notification bot starting up.\n" +
+                $"Caller: `{Assembly.GetExecutingAssembly().GetName().Name}`," +
+                $" version: `{Assembly.GetExecutingAssembly().GetName().Version}`." +
+                $" Target: `{AppContext.TargetFrameworkName}`");
 
             NotificationHub.Current.MonitorInitializing += HandleMonitorInitializing;
             NotificationHub.Current.HttpTestFailed += HandleHttpTestFailed;
@@ -318,30 +321,39 @@ namespace terminology_service_liveness_monitor.Notification
             builder.AppendLine();
 
             builder.Append("> ");
-            builder.Append($"| {info.TestDateTime.ToLongTimeString()} ");
-            builder.Append($"| {(int)info.HttpStatusCode}:{info.HttpStatusCode} ");
-            builder.Append($"| {info.TestTimeInMS} ");
-            builder.Append($"| {info.FailureNumber}/{info.MaxFailureCount} ");
-            builder.Append($"| {((double)info.WorkingSet/(1024.0 * 1024.0)).ToString("F3")} ");
-            builder.Append($"| {info.HandleCount} ");
-            builder.Append($"| {info.ThreadCount} ");
-            builder.Append($"| {info.TcpStatsV4.CurrentConnections}");
-            builder.Append("|");
-            builder.AppendLine();
+
+            if (info != null)
+            {
+                builder.Append($"| {info.TestDateTime.ToLongTimeString()} ");
+                builder.Append(info.HttpStatusCode == null ? "| " : $"| {(int)info.HttpStatusCode}:{info.HttpStatusCode} ");
+                builder.Append($"| {info.TestTimeInMS} ");
+                builder.Append($"| {info.FailureNumber}/{info.MaxFailureCount} ");
+                builder.Append($"| {((double)info.WorkingSet / (1024.0 * 1024.0)).ToString("F3")} ");
+                builder.Append($"| {info.HandleCount} ");
+                builder.Append($"| {info.ThreadCount} ");
+                builder.Append(info.TcpStatsV4 == null ? "| ": $"| {info.TcpStatsV4.CurrentConnections}");
+                builder.Append("|");
+                builder.AppendLine();
+            }
 
             if (_cachedTestInfo.Any())
             {
                 foreach (TestInfo cached in _cachedTestInfo)
                 {
+                    if (cached == null)
+                    {
+                        continue;
+                    }
+
                     builder.Append("> ");
                     builder.Append($"| {cached.TestDateTime.ToLongTimeString()} ");
-                    builder.Append($"| {(int)cached.HttpStatusCode}:{info.HttpStatusCode} ");
+                    builder.Append(cached.HttpStatusCode == null ? "| " : $"| {(int)cached.HttpStatusCode}:{info.HttpStatusCode} ");
                     builder.Append($"| {cached.TestTimeInMS} ");
                     builder.Append($"| {cached.FailureNumber}/{cached.MaxFailureCount} ");
                     builder.Append($"| {((double)cached.WorkingSet / (1024.0 * 1024.0)).ToString("F3")} ");
                     builder.Append($"| {cached.HandleCount} ");
                     builder.Append($"| {cached.ThreadCount} ");
-                    builder.Append($"| {cached.TcpStatsV4.CurrentConnections}");
+                    builder.Append(info.TcpStatsV4 == null? "| " : $"| {cached.TcpStatsV4.CurrentConnections}");
                     builder.Append("|");
                     builder.AppendLine();
                 }
