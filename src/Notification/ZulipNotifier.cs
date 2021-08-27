@@ -76,6 +76,7 @@ namespace terminology_service_liveness_monitor.Notification
             Initializing,
             TestFail,
             TestSuccess,
+            TestResult,
             Stopping,
             WaitingStop,
             Starting,
@@ -90,6 +91,7 @@ namespace terminology_service_liveness_monitor.Notification
             { NotificationMessageType.Initializing, 0 },
             { NotificationMessageType.TestFail, 0 },
             { NotificationMessageType.TestSuccess, 60 },
+            { NotificationMessageType.TestResult, 60 },
             { NotificationMessageType.Stopping, 0 },
             { NotificationMessageType.WaitingStop, 1 },
             { NotificationMessageType.Starting, 0 },
@@ -179,7 +181,9 @@ namespace terminology_service_liveness_monitor.Notification
                 $"Zulip notification bot starting up.\n" +
                 $"Caller: `{Assembly.GetExecutingAssembly().GetName().Name}`," +
                 $" version: `{Assembly.GetExecutingAssembly().GetName().Version}`." +
-                $" Target: `{AppContext.TargetFrameworkName}`");
+                $" Target: `{AppContext.TargetFrameworkName}`\n" +
+                $"OS: `{System.Runtime.InteropServices.RuntimeInformation.OSDescription}`:" +
+                $"`{System.Runtime.InteropServices.RuntimeInformation.OSArchitecture}`");
 
             NotificationHub.Current.MonitorInitializing += HandleMonitorInitializing;
             NotificationHub.Current.HttpTestFailed += HandleHttpTestFailed;
@@ -227,9 +231,20 @@ namespace terminology_service_liveness_monitor.Notification
         /// <param name="e">     Event information.</param>
         private void HandleStoppingService(object sender, EventArgs e)
         {
-            SendNotification(
-                NotificationMessageType.Stopping,
-                $"Stopping service ({_serviceName}) due to test failure.");
+            if (_cachedTestInfo.Any())
+            {
+                SendNotification(
+                    NotificationMessageType.Stopping,
+                    BuildTextForTestInfo(null, $":stop_sign: Stopping service {_serviceName!}"));
+
+                _cachedTestInfo.Clear();
+            }
+            else
+            {
+                SendNotification(
+                    NotificationMessageType.Stopping,
+                    $":stop_sign: Stopping service ({_serviceName}) due to failuresS!");
+            }
         }
 
         /// <summary>Handles the HTTP test passed.</summary>
@@ -240,55 +255,56 @@ namespace terminology_service_liveness_monitor.Notification
             // bots apparently can't edit stream messages... researching
             //UpdateMessage($"{DateTime.Now}: Service is running.");
 
-            if (ShouldQueueMessage(NotificationMessageType.TestSuccess))
+            if (ShouldQueueMessage(NotificationMessageType.TestResult))
             {
                 _cachedTestInfo.Add(e.NotificationTestInfo);
             }
             else
             {
                 SendNotification(
-                    NotificationMessageType.TestSuccess,
-                    BuildTextForTestInfo(e.NotificationTestInfo, true));
+                    NotificationMessageType.TestResult,
+                    BuildTextForTestInfo(e.NotificationTestInfo));
+
+                _cachedTestInfo.Clear();
+            }
+        }
+
+        /// <summary>Handles the HTTP test failed.</summary>
+        /// <param name="sender">Source of the event.</param>
+        /// <param name="e">     Event information.</param>
+        private void HandleHttpTestFailed(object sender, NotificationEventArgs e)
+        {
+            if (ShouldQueueMessage(NotificationMessageType.TestResult))
+            {
+                _cachedTestInfo.Add(e.NotificationTestInfo);
+            }
+            else
+            {
+                SendNotification(
+                    NotificationMessageType.TestResult,
+                    BuildTextForTestInfo(e.NotificationTestInfo));
 
                 _cachedTestInfo.Clear();
             }
         }
 
         /// <summary>Builds text for test information.</summary>
-        /// <param name="info">  The information.</param>
-        /// <param name="passed">True if passed.</param>
+        /// <param name="info">         The information.</param>
+        /// <param name="messagePrefix">(Optional) The message prefix.</param>
         /// <returns>A string.</returns>
-        private string BuildTextForTestInfo(TestInfo info, bool passed)
+        private string BuildTextForTestInfo(TestInfo info, string messagePrefix = "")
         {
             StringBuilder builder = new StringBuilder();
 
             bool useSpoiler = _cachedTestInfo.Any();
 
-            if (passed)
+            if (string.IsNullOrEmpty(messagePrefix))
             {
-                builder.AppendLine("Http test passed!");
+                builder.AppendLine("HTTP Test Results:");
             }
             else
             {
-                builder.AppendLine(":warning: Http test failed!");
-            }
-
-            if (info.HttpException != null)
-            {
-                builder.AppendLine(":double_exclamation: Exception during HTTP request!");
-                builder.AppendLine($"`{info.HttpException.Message}`");
-            }
-
-            if (info.ProcInfoException != null)
-            {
-                builder.AppendLine(":double_exclamation: Exception getting process info!");
-                builder.AppendLine($"`{info.ProcInfoException.Message}`");
-            }
-
-            if (info.NetInfoException != null)
-            {
-                builder.AppendLine(":double_exclamation: Exception getting network info!");
-                builder.AppendLine($"`{info.NetInfoException.Message}`");
+                builder.AppendLine(messagePrefix);
             }
 
             if (useSpoiler)
@@ -320,12 +336,31 @@ namespace terminology_service_liveness_monitor.Notification
             builder.Append("|");
             builder.AppendLine();
 
-            builder.Append("> ");
-
             if (info != null)
             {
+                builder.Append("> ");
                 builder.Append($"| {info.TestDateTime.ToLongTimeString()} ");
-                builder.Append(info.HttpStatusCode == null ? "| " : $"| {(int)info.HttpStatusCode}:{info.HttpStatusCode} ");
+
+                if (info.HttpException != null)
+                {
+                    if (info.HttpException.InnerException != null)
+                    {
+                        builder.Append($"|{info.HttpException.InnerException.Message} ");
+                    }
+                    else
+                    {
+                        builder.Append($"|{info.HttpException.Message} ");
+                    }
+                }
+                else if (info.HttpStatusCode != null)
+                {
+                    builder.Append($"| {(int)info.HttpStatusCode}:{info.HttpStatusCode} ");
+                }
+                else
+                {
+                    builder.Append("| ");
+                }
+
                 builder.Append($"| {info.TestTimeInMS} ");
                 builder.Append($"| {info.FailureNumber}/{info.MaxFailureCount} ");
                 builder.Append($"| {((double)info.WorkingSet / (1024.0 * 1024.0)).ToString("F3")} ");
@@ -338,7 +373,7 @@ namespace terminology_service_liveness_monitor.Notification
 
             if (_cachedTestInfo.Any())
             {
-                foreach (TestInfo cached in _cachedTestInfo)
+                foreach (TestInfo cached in _cachedTestInfo.OrderByDescending(ti => ti.TestDateTime))
                 {
                     if (cached == null)
                     {
@@ -347,13 +382,33 @@ namespace terminology_service_liveness_monitor.Notification
 
                     builder.Append("> ");
                     builder.Append($"| {cached.TestDateTime.ToLongTimeString()} ");
-                    builder.Append(cached.HttpStatusCode == null ? "| " : $"| {(int)cached.HttpStatusCode}:{info.HttpStatusCode} ");
+
+                    if (cached.HttpException != null)
+                    {
+                        if (cached.HttpException.InnerException != null)
+                        {
+                            builder.Append($"|{cached.HttpException.InnerException.Message} ");
+                        }
+                        else
+                        {
+                            builder.Append($"|{cached.HttpException.Message} ");
+                        }
+                    }
+                    else if (cached.HttpStatusCode != null)
+                    {
+                        builder.Append($"| {(int)cached.HttpStatusCode}:{cached.HttpStatusCode} ");
+                    }
+                    else
+                    {
+                        builder.Append("| ");
+                    }
+
                     builder.Append($"| {cached.TestTimeInMS} ");
                     builder.Append($"| {cached.FailureNumber}/{cached.MaxFailureCount} ");
                     builder.Append($"| {((double)cached.WorkingSet / (1024.0 * 1024.0)).ToString("F3")} ");
                     builder.Append($"| {cached.HandleCount} ");
                     builder.Append($"| {cached.ThreadCount} ");
-                    builder.Append(info.TcpStatsV4 == null? "| " : $"| {cached.TcpStatsV4.CurrentConnections}");
+                    builder.Append(cached.TcpStatsV4 == null? "| " : $"| {cached.TcpStatsV4.CurrentConnections}");
                     builder.Append("|");
                     builder.AppendLine();
                 }
@@ -365,45 +420,6 @@ namespace terminology_service_liveness_monitor.Notification
             }
 
             return builder.ToString();
-        }
-
-        /// <summary>Handles the HTTP test failed.</summary>
-        /// <param name="sender">Source of the event.</param>
-        /// <param name="e">     Event information.</param>
-        private void HandleHttpTestFailed(object sender, NotificationEventArgs e)
-        {
-            if (ShouldQueueMessage(NotificationMessageType.TestFail))
-            {
-                _cachedTestInfo.Add(e.NotificationTestInfo);
-            }
-            else
-            {
-                SendNotification(
-                    NotificationMessageType.TestFail,
-                    BuildTextForTestInfo(e.NotificationTestInfo, false));
-
-                _cachedTestInfo.Clear();
-            }
-
-
-            //if (e.HttpStatusCode == 0)
-            //{
-            //    SendNotification(
-            //        NotificationMessageType.TestFail,
-            //        $":warning: Http Test FAILED" +
-            //        $" - no response in `{e.TestTimeInMS} ms`" +
-            //        $" ({(double)e.TestTimeInMS/1000.0} s)." +
-            //        $" Failure {e.FailureNumber} of {e.MaxFailureCount} before restart.");
-            //}
-            //else
-            //{
-            //    SendNotification(
-            //        NotificationMessageType.TestFail,
-            //        $":warning: Http Test FAILED" +
-            //        $" - Status: `{e.HttpStatusCode}` in `{e.TestTimeInMS} ms`" +
-            //        $" (`{(double)e.TestTimeInMS / 1000.0} s`)." +
-            //        $" Failure {e.FailureNumber} of {e.MaxFailureCount} before restart.");
-            //}
         }
 
         /// <summary>Handles the monitor initializing.</summary>
